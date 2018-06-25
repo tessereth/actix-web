@@ -797,7 +797,6 @@ mod tests {
     use actix::*;
     use context::HttpContext;
     use futures::future::{lazy, result};
-    use http::StatusCode;
     use tokio::runtime::current_thread::Runtime;
 
     impl<S, H> PipelineState<S, H> {

@@ -5,10 +5,10 @@ use std::collections::VecDeque;
 use std::rc::Rc;
 use std::{mem, ptr, slice};
 
-use httprequest::HttpInnerMessage;
+use super::message::HttpRequestContext;
 
 /// Internal use only!
-pub(crate) struct SharedMessagePool(RefCell<VecDeque<Rc<HttpInnerMessage>>>);
+pub(crate) struct SharedMessagePool(RefCell<VecDeque<Rc<HttpRequestContext>>>);
 
 impl SharedMessagePool {
     pub fn new() -> SharedMessagePool {
@@ -16,16 +16,16 @@ impl SharedMessagePool {
     }
 
     #[inline]
-    pub fn get(&self) -> Rc<HttpInnerMessage> {
+    pub fn get(&self) -> Rc<HttpRequestContext> {
         if let Some(msg) = self.0.borrow_mut().pop_front() {
             msg
         } else {
-            Rc::new(HttpInnerMessage::default())
+            Rc::new(HttpRequestContext::default())
         }
     }
 
     #[inline]
-    pub fn release(&self, mut msg: Rc<HttpInnerMessage>) {
+    pub fn release(&self, mut msg: Rc<HttpRequestContext>) {
         let v = &mut self.0.borrow_mut();
         if v.len() < 128 {
             Rc::get_mut(&mut msg).unwrap().reset();
@@ -35,7 +35,7 @@ impl SharedMessagePool {
 }
 
 pub(crate) struct SharedHttpInnerMessage(
-    Option<Rc<HttpInnerMessage>>,
+    Option<Rc<HttpRequestContext>>,
     Option<Rc<SharedMessagePool>>,
 );
 
@@ -59,29 +59,29 @@ impl Clone for SharedHttpInnerMessage {
 
 impl Default for SharedHttpInnerMessage {
     fn default() -> SharedHttpInnerMessage {
-        SharedHttpInnerMessage(Some(Rc::new(HttpInnerMessage::default())), None)
+        SharedHttpInnerMessage(Some(Rc::new(HttpRequestContext::default())), None)
     }
 }
 
 impl SharedHttpInnerMessage {
-    pub fn from_message(msg: HttpInnerMessage) -> SharedHttpInnerMessage {
+    pub fn from_message(msg: HttpRequestContext) -> SharedHttpInnerMessage {
         SharedHttpInnerMessage(Some(Rc::new(msg)), None)
     }
 
     pub fn new(
-        msg: Rc<HttpInnerMessage>, pool: Rc<SharedMessagePool>,
+        msg: Rc<HttpRequestContext>, pool: Rc<SharedMessagePool>,
     ) -> SharedHttpInnerMessage {
         SharedHttpInnerMessage(Some(msg), Some(pool))
     }
 
     #[inline]
-    pub fn get_mut(&mut self) -> &mut HttpInnerMessage {
-        let r: &HttpInnerMessage = self.0.as_ref().unwrap().as_ref();
+    pub fn get_mut(&mut self) -> &mut HttpRequestContext {
+        let r: &HttpRequestContext = self.0.as_ref().unwrap().as_ref();
         unsafe { &mut *(r as *const _ as *mut _) }
     }
 
     #[inline]
-    pub fn get_ref(&self) -> &HttpInnerMessage {
+    pub fn get_ref(&self) -> &HttpRequestContext {
         self.0.as_ref().unwrap()
     }
 }

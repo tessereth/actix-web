@@ -15,9 +15,9 @@ use http::header::{
 };
 use http::{HttpTryFrom, Method, Version};
 
+use super::message::HttpRequestContext;
 use body::{Binary, Body};
 use header::ContentEncoding;
-use httprequest::HttpInnerMessage;
 use httpresponse::HttpResponse;
 
 #[derive(Debug)]
@@ -120,7 +120,7 @@ impl Output {
     }
 
     pub fn for_server(
-        &mut self, req: &HttpInnerMessage, resp: &mut HttpResponse,
+        &mut self, req: &HttpRequestContext, resp: &mut HttpResponse,
         response_encoding: ContentEncoding,
     ) {
         let buf = self.take();

@@ -15,11 +15,13 @@ mod h2;
 mod h2writer;
 pub(crate) mod helpers;
 pub(crate) mod input;
+pub(crate) mod message;
 pub(crate) mod output;
 pub(crate) mod settings;
 mod srv;
 mod worker;
 
+pub use self::message::HttpRequestContext;
 pub use self::settings::ServerSettings;
 pub use self::srv::HttpServer;
 
@@ -30,7 +32,7 @@ use actix::Message;
 use body::Binary;
 use error::Error;
 use header::ContentEncoding;
-use httprequest::{HttpInnerMessage, HttpRequest};
+use httprequest::HttpRequest;
 use httpresponse::HttpResponse;
 
 /// max buffer size 64k
@@ -196,7 +198,7 @@ pub trait Writer {
     fn buffer(&mut self) -> &mut BytesMut;
 
     fn start(
-        &mut self, req: &mut HttpInnerMessage, resp: &mut HttpResponse,
+        &mut self, req: &mut HttpRequestContext, resp: &mut HttpResponse,
         encoding: ContentEncoding,
     ) -> io::Result<WriterState>;
 

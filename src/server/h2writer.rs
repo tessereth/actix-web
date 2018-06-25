@@ -12,12 +12,12 @@ use http::header::{HeaderValue, CONNECTION, CONTENT_LENGTH, DATE, TRANSFER_ENCOD
 use http::{HttpTryFrom, Version};
 
 use super::helpers;
+use super::message::HttpRequestContext;
 use super::output::Output;
 use super::settings::WorkerSettings;
 use super::{Writer, WriterState, MAX_WRITE_BUFFER_SIZE};
 use body::{Binary, Body};
 use header::ContentEncoding;
-use httprequest::HttpInnerMessage;
 use httpresponse::HttpResponse;
 
 const CHUNK_SIZE: usize = 16_384;
@@ -85,7 +85,7 @@ impl<H: 'static> Writer for H2Writer<H> {
     }
 
     fn start(
-        &mut self, req: &mut HttpInnerMessage, msg: &mut HttpResponse,
+        &mut self, req: &mut HttpRequestContext, msg: &mut HttpResponse,
         encoding: ContentEncoding,
     ) -> io::Result<WriterState> {
         // prepare response

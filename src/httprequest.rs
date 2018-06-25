@@ -24,27 +24,8 @@ use param::Params;
 use payload::Payload;
 use router::{Resource, Router};
 use server::helpers::SharedHttpInnerMessage;
+use server::message::{HttpRequestContext, MessageFlags};
 use uri::Url as InnerUrl;
-
-bitflags! {
-    pub(crate) struct MessageFlags: u8 {
-        const KEEPALIVE = 0b0000_0010;
-    }
-}
-
-pub struct HttpInnerMessage {
-    pub version: Version,
-    pub method: Method,
-    pub(crate) url: InnerUrl,
-    pub(crate) flags: MessageFlags,
-    pub headers: HeaderMap,
-    pub extensions: Extensions,
-    pub params: Params,
-    pub addr: Option<SocketAddr>,
-    pub payload: Option<Payload>,
-    pub prefix: u16,
-    resource: RouterResource,
-}
 
 struct Query(HashMap<String, String>);
 struct Cookies(Vec<Cookie<'static>>);
@@ -56,46 +37,13 @@ enum RouterResource {
     Normal(u16),
 }
 
-impl Default for HttpInnerMessage {
-    fn default() -> HttpInnerMessage {
-        HttpInnerMessage {
-            method: Method::GET,
-            url: InnerUrl::default(),
-            version: Version::HTTP_11,
-            headers: HeaderMap::with_capacity(16),
-            flags: MessageFlags::empty(),
-            params: Params::new(),
-            addr: None,
-            payload: None,
-            extensions: Extensions::new(),
-            prefix: 0,
-            resource: RouterResource::Notset,
-        }
-    }
-}
-
-impl HttpInnerMessage {
-    /// Checks if a connection should be kept alive.
-    #[inline]
-    pub fn keep_alive(&self) -> bool {
-        self.flags.contains(MessageFlags::KEEPALIVE)
-    }
-
-    #[inline]
-    pub(crate) fn reset(&mut self) {
-        self.headers.clear();
-        self.extensions.clear();
-        self.params.clear();
-        self.addr = None;
-        self.flags = MessageFlags::empty();
-        self.payload = None;
-        self.prefix = 0;
-        self.resource = RouterResource::Notset;
-    }
-}
-
 /// An HTTP Request
-pub struct HttpRequest<S = ()>(SharedHttpInnerMessage, Option<Rc<S>>, Option<Router>);
+pub struct HttpRequest<S = ()> {
+    msg: SharedHttpInnerMessage,
+    state: Option<Rc<S>>,
+    router: Option<Router>,
+    resource: RouterResource,
+}
 
 impl HttpRequest<()> {
     /// Construct a new Request.
@@ -105,8 +53,8 @@ impl HttpRequest<()> {
         payload: Option<Payload>,
     ) -> HttpRequest {
         let url = InnerUrl::new(uri);
-        HttpRequest(
-            SharedHttpInnerMessage::from_message(HttpInnerMessage {
+        HttpRequest {
+            msg: SharedHttpInnerMessage::from_message(HttpRequestContext {
                 method,
                 url,
                 version,
@@ -117,29 +65,44 @@ impl HttpRequest<()> {
                 addr: None,
                 prefix: 0,
                 flags: MessageFlags::empty(),
-                resource: RouterResource::Notset,
             }),
-            None,
-            None,
-        )
+            state: None,
+            router: None,
+            resource: RouterResource::Notset,
+        }
     }
 
     #[inline(always)]
     #[cfg_attr(feature = "cargo-clippy", allow(inline_always))]
     pub(crate) fn from_message(msg: SharedHttpInnerMessage) -> HttpRequest {
-        HttpRequest(msg, None, None)
+        HttpRequest {
+            msg,
+            state: None,
+            router: None,
+            resource: RouterResource::Notset,
+        }
     }
 
     #[inline]
     /// Construct new http request with state.
     pub fn with_state<S>(self, state: Rc<S>, router: Router) -> HttpRequest<S> {
-        HttpRequest(self.0, Some(state), Some(router))
+        HttpRequest {
+            msg: self.msg,
+            state: Some(state),
+            router: Some(router),
+            resource: RouterResource::Notset,
+        }
     }
 
     pub(crate) fn clone_with_state<S>(
         &self, state: Rc<S>, router: Router,
     ) -> HttpRequest<S> {
-        HttpRequest(self.0.clone(), Some(state), Some(router))
+        HttpRequest {
+            msg: self.msg.clone(),
+            state: Some(state),
+            router: Some(router),
+            resource: self.resource,
+        }
     }
 }
 
@@ -154,43 +117,53 @@ impl<S> HttpRequest<S> {
     #[inline]
     /// Construct new http request with state.
     pub fn change_state<NS>(&self, state: Rc<NS>) -> HttpRequest<NS> {
-        HttpRequest(self.0.clone(), Some(state), self.2.clone())
+        HttpRequest {
+            msg: self.msg.clone(),
+            state: Some(state),
+            router: self.router.clone(),
+            resource: self.resource,
+        }
     }
 
     #[inline]
     /// Construct new http request without state.
     pub fn drop_state(&self) -> HttpRequest {
-        HttpRequest(self.0.clone(), None, self.2.clone())
+        HttpRequest {
+            msg: self.msg.clone(),
+            state: None,
+            router: self.router.clone(),
+            resource: self.resource,
+        }
     }
 
     /// get mutable reference for inner message
     /// mutable reference should not be returned as result for request's method
     #[inline]
-    pub(crate) fn as_mut(&mut self) -> &mut HttpInnerMessage {
-        self.0.get_mut()
+    pub(crate) fn as_mut(&mut self) -> &mut HttpRequestContext {
+        self.msg.get_mut()
     }
 
     #[inline]
-    fn as_ref(&self) -> &HttpInnerMessage {
-        self.0.get_ref()
+    fn as_ref(&self) -> &HttpRequestContext {
+        self.msg.get_ref()
     }
 
     /// Shared application state
     #[inline]
     pub fn state(&self) -> &S {
-        self.1.as_ref().unwrap()
+        self.state.as_ref().unwrap()
     }
 
     /// Request extensions
     #[inline]
     pub fn extensions(&self) -> &Extensions {
-        &self.as_ref().extensions
+        self.as_ref().extensions()
     }
 
     /// Mutable reference to a the request's extensions
     #[inline]
     pub fn extensions_mut(&mut self) -> &mut Extensions {
-        &mut self.as_mut().extensions
+        self.as_mut().extensions_mut()
     }
 
     /// Default `CpuPool`
@@ -336,14 +309,14 @@ impl<S> HttpRequest<S> {
     /// This method returns reference to current `Router` object.
     #[inline]
     pub fn router(&self) -> Option<&Router> {
-        self.2.as_ref()
+        self.router.as_ref()
     }
 
     /// This method returns reference to matched `Resource` object.
     #[inline]
     pub fn resource(&self) -> Option<&Resource> {
-        if let Some(ref router) = self.2 {
-            if let RouterResource::Normal(idx) = self.as_ref().resource {
+        if let Some(ref router) = self.router {
+            if let RouterResource::Normal(idx) = self.resource {
                 return Some(router.get_resource(idx as usize));
             }
         }
@@ -351,7 +324,7 @@ impl<S> HttpRequest<S> {
     }
 
     pub(crate) fn set_resource(&mut self, res: usize) {
-        self.as_mut().resource = RouterResource::Normal(res as u16);
+        self.resource = RouterResource::Normal(res as u16);
     }
 
     /// Peer socket address
@@ -496,13 +469,23 @@ impl<S> HttpRequest<S> {
 impl Default for HttpRequest<()> {
     /// Construct default request
     fn default() -> HttpRequest {
-        HttpRequest(SharedHttpInnerMessage::default(), None, None)
+        HttpRequest {
+            msg: SharedHttpInnerMessage::default(),
+            state: None,
+            router: None,
+            resource: RouterResource::Notset,
+        }
     }
 }
 
 impl<S> Clone for HttpRequest<S> {
     fn clone(&self) -> HttpRequest<S> {
-        HttpRequest(self.0.clone(), self.1.clone(), self.2.clone())
+        HttpRequest {
+            msg: self.msg.clone(),
+            state: self.state.clone(),
+            router: self.router.clone(),
+            resource: self.resource,
+        }
     }
 }
 

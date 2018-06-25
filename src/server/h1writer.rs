@@ -9,12 +9,12 @@ use tokio_io::AsyncWrite;
 use super::helpers;
 use super::output::Output;
 use super::settings::WorkerSettings;
+use super::HttpRequestContext;
 use super::{Writer, WriterState, MAX_WRITE_BUFFER_SIZE};
 use body::{Binary, Body};
 use header::ContentEncoding;
 use http::header::{HeaderValue, CONNECTION, CONTENT_LENGTH, DATE};
 use http::{Method, Version};
-use httprequest::HttpInnerMessage;
 use httpresponse::HttpResponse;
 
 const AVERAGE_HEADER_SIZE: usize = 30; // totally scientific
@@ -111,7 +111,7 @@ impl<T: AsyncWrite, H: 'static> Writer for H1Writer<T, H> {
     }
 
     fn start(
-        &mut self, req: &mut HttpInnerMessage, msg: &mut HttpResponse,
+        &mut self, req: &mut HttpRequestContext, msg: &mut HttpResponse,
         encoding: ContentEncoding,
     ) -> io::Result<WriterState> {
         // prepare task

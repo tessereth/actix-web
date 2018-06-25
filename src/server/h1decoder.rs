@@ -5,11 +5,11 @@ use futures::{Async, Poll};
 use httparse;
 
 use super::helpers::SharedHttpInnerMessage;
+use super::message::MessageFlags;
 use super::settings::WorkerSettings;
 use error::ParseError;
 use http::header::{HeaderName, HeaderValue};
 use http::{header, HttpTryFrom, Method, Uri, Version};
-use httprequest::MessageFlags;
 use uri::Url;
 
 const MAX_BUFFER_SIZE: usize = 131_072;
