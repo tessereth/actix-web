@@ -860,13 +860,9 @@ impl<'a> From<&'a ClientResponse> for HttpResponseBuilder {
 
 impl<'a, S> From<&'a HttpRequest<S>> for HttpResponseBuilder {
     fn from(req: &'a HttpRequest<S>) -> HttpResponseBuilder {
-        if let Some(router) = req.router() {
-            router
-                .server_settings()
-                .get_response_builder(StatusCode::OK)
-        } else {
-            HttpResponse::Ok()
-        }
+        req.router()
+            .server_settings()
+            .get_response_builder(StatusCode::OK)
     }
 }
 
@@ -1050,6 +1046,8 @@ mod tests {
     use std::str::FromStr;
     use time::Duration;
 
+    use test::TestRequest;
+
     #[test]
     fn test_debug() {
         let resp = HttpResponse::Ok()
@@ -1062,17 +1060,10 @@ mod tests {
 
     #[test]
     fn test_response_cookies() {
-        let mut headers = HeaderMap::new();
-        headers.insert(COOKIE, HeaderValue::from_static("cookie1=value1"));
-        headers.insert(COOKIE, HeaderValue::from_static("cookie2=value2"));
-
-        let req = HttpRequest::new(
-            Method::GET,
-            Uri::from_str("/").unwrap(),
-            Version::HTTP_11,
-            headers,
-            None,
-        );
+        let req = TestRequest::default()
+            .header(COOKIE, "cookie1=value1")
+            .header(COOKIE, "cookie2=value2")
+            .finish();
         let cookies = req.cookies().unwrap();
 
         let resp = HttpResponse::Ok()
@@ -1208,7 +1199,7 @@ mod tests {
 
     #[test]
     fn test_into_response() {
-        let req = HttpRequest::default();
+        let req = TestRequest::default().finish();
 
         let resp: HttpResponse = "test".into();
         assert_eq!(resp.status(), StatusCode::OK);

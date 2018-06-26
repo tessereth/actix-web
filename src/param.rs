@@ -1,7 +1,7 @@
 use std;
-use std::rc::Rc;
 use std::ops::Index;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::str::FromStr;
 
 use http::StatusCode;
@@ -62,7 +62,8 @@ impl Params {
     }
 
     pub(crate) fn add_static(&mut self, name: &str, value: &'static str) {
-        self.segments.push((Rc::new(name.to_string()), ParamItem::Static(value)));
+        self.segments
+            .push((Rc::new(name.to_string()), ParamItem::Static(value)));
     }
 
     /// Check if there are any matched patterns

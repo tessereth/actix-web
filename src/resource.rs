@@ -6,12 +6,17 @@ use http::Method;
 use smallvec::SmallVec;
 
 use error::Error;
-use handler::{AsyncResult, FromRequest, Handler, Responder};
+use handler::{AsyncResult, FromRequest, Handler, Responder, RouteResult};
 use httprequest::HttpRequest;
 use httpresponse::HttpResponse;
 use middleware::Middleware;
 use pred;
 use route::Route;
+use server::RequestContext;
+use state::RequestState;
+
+#[derive(Copy, Clone)]
+pub(crate) struct RouteId(usize);
 
 /// *Resource* is an entry in route table which corresponds to requested URL.
 ///
@@ -192,7 +197,7 @@ impl<S: 'static> ResourceHandler<S> {
     /// ```
     pub fn f<F, R>(&mut self, handler: F)
     where
-        F: Fn(HttpRequest<S>) -> R + 'static,
+        F: Fn(&HttpRequest<S>) -> R + 'static,
         R: Responder + 'static,
     {
         self.routes.push(Route::default());
@@ -279,19 +284,22 @@ impl<S: 'static> ResourceHandler<S> {
             .push(Box::new(mw));
     }
 
-    pub(crate) fn handle(
-        &self, mut req: HttpRequest<S>,
-    ) -> Result<AsyncResult<HttpResponse>, HttpRequest<S>> {
-        for route in &self.routes {
-            if route.check(&mut req) {
-                return if self.middlewares.is_empty() {
-                    Ok(route.handle(req))
-                } else {
-                    Ok(route.compose(req, Rc::clone(&self.middlewares)))
-                };
+    #[inline]
+    pub(crate) fn get_route_id(
+        &self, msg: &mut RequestContext, state: &RequestState<S>,
+    ) -> Option<RouteId> {
+        for idx in 0..self.routes.len() {
+            if (&self.routes[idx]).check(msg, state) {
+                return Some(RouteId(idx));
             }
         }
+        None
+    }
 
-        Err(req)
+    #[inline]
+    pub(crate) fn handle(
+        &self, id: RouteId, msg: RequestContext, state: RequestState<S>,
+    ) -> RouteResult<S> {
+        (&self.routes[id.0]).handle(msg, state)
     }
 }

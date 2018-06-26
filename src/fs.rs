@@ -607,7 +607,7 @@ impl<S: 'static> StaticFiles<S> {
             index: None,
             show_index: false,
             cpu_pool: pool,
-            default: Box::new(WrapHandler::new(|_| {
+            default: Box::new(WrapHandler::new(|_: &_| {
                 HttpResponse::new(StatusCode::NOT_FOUND)
             })),
             renderer: Box::new(directory_listing),
@@ -654,9 +654,12 @@ impl<S: 'static> StaticFiles<S> {
 impl<S: 'static> Handler<S> for StaticFiles<S> {
     type Result = Result<AsyncResult<HttpResponse>, Error>;
 
-    fn handle(&self, req: HttpRequest<S>) -> Self::Result {
+    fn handle(&self, req: &HttpRequest<S>) -> Self::Result {
+        unimplemented!()
+        /*
         if !self.accessible {
-            Ok(self.default.handle(req))
+            let (msg, state) = req.into_parts();
+            Ok(self.default.handle(msg, state))
         } else {
             let relpath = match req
                 .match_info()
@@ -664,7 +667,10 @@ impl<S: 'static> Handler<S> for StaticFiles<S> {
                 .map(|tail| PathBuf::from_param(tail.trim_left_matches('/')))
             {
                 Some(Ok(path)) => path,
-                _ => return Ok(self.default.handle(req)),
+                _ => {
+                    let (msg, state) = req.into_parts();
+                    return Ok(self.default.handle(msg, state));
+                }
             };
 
             // full filepath
@@ -692,7 +698,8 @@ impl<S: 'static> Handler<S> for StaticFiles<S> {
                     let dir = Directory::new(self.directory.clone(), path);
                     Ok((*self.renderer)(&dir, &req)?.into())
                 } else {
-                    Ok(self.default.handle(req))
+                    let (msg, state) = req.into_parts();
+                    Ok(self.default.handle(msg, state))
                 }
             } else {
                 NamedFile::open(path)?
@@ -701,6 +708,7 @@ impl<S: 'static> Handler<S> for StaticFiles<S> {
                     .respond_to(&req)
             }
         }
+        */
     }
 }
 
@@ -832,7 +840,8 @@ mod tests {
             let _f: &mut File = &mut file;
         }
 
-        let resp = file.respond_to(&HttpRequest::default()).unwrap();
+        let req = TestRequest::default().finish();
+        let resp = file.respond_to(&req).unwrap();
         assert_eq!(
             resp.headers().get(header::CONTENT_TYPE).unwrap(),
             "text/x-toml"
@@ -857,7 +866,8 @@ mod tests {
             let _f: &mut File = &mut file;
         }
 
-        let resp = file.respond_to(&HttpRequest::default()).unwrap();
+        let req = TestRequest::default().finish();
+        let resp = file.respond_to(&req).unwrap();
         assert_eq!(
             resp.headers().get(header::CONTENT_TYPE).unwrap(),
             "text/xml"
@@ -881,7 +891,8 @@ mod tests {
             let _f: &mut File = &mut file;
         }
 
-        let resp = file.respond_to(&HttpRequest::default()).unwrap();
+        let req = TestRequest::default().finish();
+        let resp = file.respond_to(&req).unwrap();
         assert_eq!(
             resp.headers().get(header::CONTENT_TYPE).unwrap(),
             "image/png"
@@ -915,7 +926,8 @@ mod tests {
             let _f: &mut File = &mut file;
         }
 
-        let resp = file.respond_to(&HttpRequest::default()).unwrap();
+        let req = TestRequest::default().finish();
+        let resp = file.respond_to(&req).unwrap();
         assert_eq!(
             resp.headers().get(header::CONTENT_TYPE).unwrap(),
             "image/png"
@@ -939,7 +951,8 @@ mod tests {
             let _f: &mut File = &mut file;
         }
 
-        let resp = file.respond_to(&HttpRequest::default()).unwrap();
+        let req = TestRequest::default().finish();
+        let resp = file.respond_to(&req).unwrap();
         assert_eq!(
             resp.headers().get(header::CONTENT_TYPE).unwrap(),
             "application/octet-stream"
@@ -964,7 +977,8 @@ mod tests {
             let _f: &mut File = &mut file;
         }
 
-        let resp = file.respond_to(&HttpRequest::default()).unwrap();
+        let req = TestRequest::default().finish();
+        let resp = file.respond_to(&req).unwrap();
         assert_eq!(
             resp.headers().get(header::CONTENT_TYPE).unwrap(),
             "text/x-toml"
@@ -1172,27 +1186,24 @@ mod tests {
     fn test_static_files() {
         let mut st = StaticFiles::new(".").show_files_listing();
         st.accessible = false;
-        let resp = st
-            .handle(HttpRequest::default())
-            .respond_to(&HttpRequest::default())
-            .unwrap();
+        let req = TestRequest::default().finish();
+        let resp = st.handle(&req).respond_to(&req).unwrap();
         let resp = resp.as_msg();
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 
         st.accessible = true;
         st.show_index = false;
-        let resp = st
-            .handle(HttpRequest::default())
-            .respond_to(&HttpRequest::default())
-            .unwrap();
+        let req = TestRequest::default().finish();
+        let resp = st.handle(&req).respond_to(&req).unwrap();
         let resp = resp.as_msg();
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 
-        let mut req = HttpRequest::default();
+        let (mut req, state) = TestRequest::default().context();
         req.match_info_mut().add_static("tail", "");
 
         st.show_index = true;
-        let resp = st.handle(req).respond_to(&HttpRequest::default()).unwrap();
+        let req = HttpRequest::from_state(req, state);
+        let resp = st.handle(&req).respond_to(&req).unwrap();
         let resp = resp.as_msg();
         assert_eq!(
             resp.headers().get(header::CONTENT_TYPE).unwrap(),
@@ -1205,10 +1216,11 @@ mod tests {
     #[test]
     fn test_redirect_to_index() {
         let st = StaticFiles::new(".").index_file("index.html");
-        let mut req = HttpRequest::default();
-        req.match_info_mut().add_static("tail", "tests");
+        let (mut ctx, state) = TestRequest::default().context();
+        ctx.match_info_mut().add_static("tail", "tests");
 
-        let resp = st.handle(req).respond_to(&HttpRequest::default()).unwrap();
+        let req = HttpRequest::from_state(ctx, state);
+        let resp = st.handle(&req).respond_to(&req).unwrap();
         let resp = resp.as_msg();
         assert_eq!(resp.status(), StatusCode::FOUND);
         assert_eq!(
@@ -1216,10 +1228,11 @@ mod tests {
             "/tests/index.html"
         );
 
-        let mut req = HttpRequest::default();
-        req.match_info_mut().add_static("tail", "tests/");
+        let (mut ctx, state) = TestRequest::default().context();
+        ctx.match_info_mut().add_static("tail", "tests/");
 
-        let resp = st.handle(req).respond_to(&HttpRequest::default()).unwrap();
+        let req = HttpRequest::from_state(ctx, state);
+        let resp = st.handle(&req).respond_to(&req).unwrap();
         let resp = resp.as_msg();
         assert_eq!(resp.status(), StatusCode::FOUND);
         assert_eq!(
@@ -1231,10 +1244,11 @@ mod tests {
     #[test]
     fn test_redirect_to_index_nested() {
         let st = StaticFiles::new(".").index_file("mod.rs");
-        let mut req = HttpRequest::default();
-        req.match_info_mut().add_static("tail", "src/client");
+        let (mut ctx, state) = TestRequest::default().context();
+        ctx.match_info_mut().add_static("tail", "src/client");
 
-        let resp = st.handle(req).respond_to(&HttpRequest::default()).unwrap();
+        let req = HttpRequest::from_state(ctx, state);
+        let resp = st.handle(&req).respond_to(&req).unwrap();
         let resp = resp.as_msg();
         assert_eq!(resp.status(), StatusCode::FOUND);
         assert_eq!(

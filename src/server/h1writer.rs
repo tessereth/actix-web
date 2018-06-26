@@ -7,13 +7,15 @@ use std::rc::Rc;
 use tokio_io::AsyncWrite;
 
 use super::helpers;
-use super::output::Output;
+use super::output::{Output, ResponseInfo, ResponseLength};
 use super::settings::WorkerSettings;
-use super::HttpRequestContext;
+use super::RequestContext;
 use super::{Writer, WriterState, MAX_WRITE_BUFFER_SIZE};
 use body::{Binary, Body};
 use header::ContentEncoding;
-use http::header::{HeaderValue, CONNECTION, CONTENT_LENGTH, DATE};
+use http::header::{
+    HeaderValue, CONNECTION, CONTENT_ENCODING, CONTENT_LENGTH, DATE, TRANSFER_ENCODING,
+};
 use http::{Method, Version};
 use httpresponse::HttpResponse;
 
@@ -111,11 +113,12 @@ impl<T: AsyncWrite, H: 'static> Writer for H1Writer<T, H> {
     }
 
     fn start(
-        &mut self, req: &mut HttpRequestContext, msg: &mut HttpResponse,
+        &mut self, req: &RequestContext, msg: &mut HttpResponse,
         encoding: ContentEncoding,
     ) -> io::Result<WriterState> {
         // prepare task
-        self.buffer.for_server(req, msg, encoding);
+        let mut info = ResponseInfo::new(req.inner.method == Method::HEAD);
+        self.buffer.for_server(&mut info, &req.inner, msg, encoding);
         if msg.keep_alive().unwrap_or_else(|| req.keep_alive()) {
             self.flags = Flags::STARTED | Flags::KEEPALIVE;
         } else {
@@ -123,7 +126,7 @@ impl<T: AsyncWrite, H: 'static> Writer for H1Writer<T, H> {
         }
 
         // Connection upgrade
-        let version = msg.version().unwrap_or_else(|| req.version);
+        let version = msg.version().unwrap_or_else(|| req.inner.version);
         if msg.upgrade() {
             self.flags.insert(Flags::UPGRADE);
             msg.headers_mut()
@@ -166,16 +169,29 @@ impl<T: AsyncWrite, H: 'static> Writer for H1Writer<T, H> {
             helpers::write_status_line(version, msg.status().as_u16(), &mut buffer);
             buffer.extend_from_slice(reason);
 
-            match body {
-                Body::Empty => if req.method != Method::HEAD {
-                    buffer.extend_from_slice(b"\r\ncontent-length: 0\r\n");
-                } else {
-                    buffer.extend_from_slice(b"\r\n");
-                },
-                Body::Binary(ref bytes) => {
-                    helpers::write_content_length(bytes.len(), &mut buffer)
+            // content length
+            match info.length {
+                ResponseLength::Chunked => {
+                    buffer.extend_from_slice(b"\r\ntransfer-encoding: chunked\r\n")
                 }
-                _ => buffer.extend_from_slice(b"\r\n"),
+                ResponseLength::Zero => {
+                    buffer.extend_from_slice(b"\r\ncontent-length: 0\r\n")
+                }
+                ResponseLength::Length(len) => {
+                    helpers::write_content_length(len, &mut buffer)
+                }
+                ResponseLength::Length64(len) => {
+                    let s = format!("{}", len);
+                    buffer.extend_from_slice(b"\r\ncontent-length: ");
+                    buffer.extend_from_slice(s.as_ref());
+                    buffer.extend_from_slice(b"\r\n");
+                }
+                ResponseLength::None => buffer.extend_from_slice(b"\r\n"),
+            }
+            if let Some(ce) = info.content_encoding {
+                buffer.extend_from_slice(b"content-encoding: ");
+                buffer.extend_from_slice(ce.as_ref());
+                buffer.extend_from_slice(b"\r\n");
             }
 
             // write headers
@@ -185,9 +201,13 @@ impl<T: AsyncWrite, H: 'static> Writer for H1Writer<T, H> {
             unsafe {
                 let mut buf = &mut *(buffer.bytes_mut() as *mut [u8]);
                 for (key, value) in msg.headers() {
-                    if is_bin && key == CONTENT_LENGTH {
-                        is_bin = false;
-                        continue;
+                    match *key {
+                        TRANSFER_ENCODING | CONTENT_ENCODING => continue,
+                        CONTENT_LENGTH => match info.length {
+                            ResponseLength::None => (),
+                            _ => continue,
+                        },
+                        _ => (),
                     }
                     has_date = has_date || key == DATE;
                     let v = value.as_ref();

@@ -91,6 +91,10 @@ mod tests {
     use middleware::Started;
     use test;
 
+    use server::RequestContext;
+    use state::RequestState;
+    use test::TestRequest;
+
     fn render_500<S>(_: &mut HttpRequest<S>, resp: HttpResponse) -> Result<Response> {
         let mut builder = resp.into_builder();
         builder.header(CONTENT_TYPE, "0001");
@@ -102,7 +106,7 @@ mod tests {
         let mw =
             ErrorHandlers::new().handler(StatusCode::INTERNAL_SERVER_ERROR, render_500);
 
-        let mut req = HttpRequest::default();
+        let mut req = TestRequest::default().finish();
         let resp = HttpResponse::InternalServerError().finish();
         let resp = match mw.response(&mut req, resp) {
             Ok(Response::Done(resp)) => resp,
@@ -121,7 +125,9 @@ mod tests {
     struct MiddlewareOne;
 
     impl<S> Middleware<S> for MiddlewareOne {
-        fn start(&self, _req: &mut HttpRequest<S>) -> Result<Started, Error> {
+        fn start(
+            &self, _: &mut RequestContext, _: &RequestState<S>,
+        ) -> Result<Started, Error> {
             Err(ErrorInternalServerError("middleware error"))
         }
     }

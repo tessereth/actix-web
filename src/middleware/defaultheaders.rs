@@ -97,12 +97,13 @@ impl<S> Middleware<S> for DefaultHeaders {
 mod tests {
     use super::*;
     use http::header::CONTENT_TYPE;
+    use test::TestRequest;
 
     #[test]
     fn test_default_headers() {
         let mw = DefaultHeaders::new().header(CONTENT_TYPE, "0001");
 
-        let mut req = HttpRequest::default();
+        let mut req = TestRequest::default().finish();
 
         let resp = HttpResponse::Ok().finish();
         let resp = match mw.response(&mut req, resp) {

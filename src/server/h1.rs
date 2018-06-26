@@ -180,9 +180,7 @@ where
             && self.tasks.len() < MAX_PIPELINED_MESSAGES
             && self.can_read()
         {
-            let res = self.stream.get_mut().read_available(&mut self.buf);
-            match res {
-                //self.stream.get_mut().read_available(&mut self.buf) {
+            match self.stream.get_mut().read_available(&mut self.buf) {
                 Ok(Async::Ready(disconnected)) => {
                     if disconnected {
                         // notify all tasks
@@ -363,22 +361,19 @@ where
 
                     if payload {
                         let (ps, pl) = Payload::new(false);
-                        msg.get_mut().payload = Some(pl);
-                        self.payload =
-                            Some(PayloadType::new(&msg.get_ref().headers, ps));
+                        *msg.inner.payload.borrow_mut() = Some(pl);
+                        self.payload = Some(PayloadType::new(&msg.inner.headers, ps));
                     }
 
-                    let mut req = HttpRequest::from_message(msg);
-
                     // set remote addr
-                    req.set_peer_addr(self.addr);
+                    msg.inner.addr = self.addr;
 
                     // stop keepalive timer
                     self.keepalive_timer.take();
 
                     // search handler for request
                     for h in self.settings.handlers().iter_mut() {
-                        req = match h.handle(req) {
+                        msg = match h.handle(msg) {
                             Ok(mut pipe) => {
                                 if self.tasks.is_empty() {
                                     match pipe.poll_io(&mut self.stream) {
@@ -415,7 +410,7 @@ where
                                 });
                                 continue 'outer;
                             }
-                            Err(req) => req,
+                            Err(msg) => msg,
                         }
                     }
 
@@ -475,12 +470,11 @@ mod tests {
     use application::HttpApplication;
     use httpmessage::HttpMessage;
     use server::h1decoder::Message;
-    use server::helpers::SharedHttpInnerMessage;
     use server::settings::WorkerSettings;
-    use server::KeepAlive;
+    use server::{KeepAlive, RequestContext};
 
     impl Message {
-        fn message(self) -> SharedHttpInnerMessage {
+        fn message(self) -> RequestContext {
             match self {
                 Message::Message { msg, payload: _ } => msg,
                 _ => panic!("error"),
@@ -511,7 +505,7 @@ mod tests {
             let settings: WorkerSettings<HttpApplication> =
                 WorkerSettings::new(Vec::new(), KeepAlive::Os);
             match H1Decoder::new().decode($e, &settings) {
-                Ok(Some(msg)) => HttpRequest::from_message(msg.message()),
+                Ok(Some(msg)) => msg.message(),
                 Ok(_) => unreachable!("Eof during parsing http request"),
                 Err(err) => unreachable!("Error during parsing http request: {:?}", err),
             }
@@ -636,7 +630,7 @@ mod tests {
         let mut reader = H1Decoder::new();
         match reader.decode(&mut buf, &settings) {
             Ok(Some(msg)) => {
-                let req = HttpRequest::from_message(msg.message());
+                let req = msg.message();
                 assert_eq!(req.version(), Version::HTTP_11);
                 assert_eq!(*req.method(), Method::GET);
                 assert_eq!(req.path(), "/test");
@@ -659,7 +653,7 @@ mod tests {
         buf.extend(b".1\r\n\r\n");
         match reader.decode(&mut buf, &settings) {
             Ok(Some(msg)) => {
-                let mut req = HttpRequest::from_message(msg.message());
+                let mut req = msg.message();
                 assert_eq!(req.version(), Version::HTTP_11);
                 assert_eq!(*req.method(), Method::PUT);
                 assert_eq!(req.path(), "/test");
@@ -676,7 +670,7 @@ mod tests {
         let mut reader = H1Decoder::new();
         match reader.decode(&mut buf, &settings) {
             Ok(Some(msg)) => {
-                let mut req = HttpRequest::from_message(msg.message());
+                let mut req = msg.message();
                 assert_eq!(req.version(), Version::HTTP_10);
                 assert_eq!(*req.method(), Method::POST);
                 assert_eq!(req.path(), "/test2");
@@ -694,7 +688,7 @@ mod tests {
         let mut reader = H1Decoder::new();
         match reader.decode(&mut buf, &settings) {
             Ok(Some(msg)) => {
-                let mut req = HttpRequest::from_message(msg.message());
+                let mut req = msg.message();
                 assert_eq!(req.version(), Version::HTTP_11);
                 assert_eq!(*req.method(), Method::GET);
                 assert_eq!(req.path(), "/test");
@@ -721,7 +715,7 @@ mod tests {
         let mut reader = H1Decoder::new();
         match reader.decode(&mut buf, &settings) {
             Ok(Some(msg)) => {
-                let mut req = HttpRequest::from_message(msg.message());
+                let mut req = msg.message();
                 assert_eq!(req.version(), Version::HTTP_11);
                 assert_eq!(*req.method(), Method::GET);
                 assert_eq!(req.path(), "/test");
@@ -749,7 +743,7 @@ mod tests {
         buf.extend(b"\r\n");
         match reader.decode(&mut buf, &settings) {
             Ok(Some(msg)) => {
-                let req = HttpRequest::from_message(msg.message());
+                let req = msg.message();
                 assert_eq!(req.version(), Version::HTTP_11);
                 assert_eq!(*req.method(), Method::GET);
                 assert_eq!(req.path(), "/test");
@@ -775,7 +769,7 @@ mod tests {
         buf.extend(b"t: value\r\n\r\n");
         match reader.decode(&mut buf, &settings) {
             Ok(Some(msg)) => {
-                let req = HttpRequest::from_message(msg.message());
+                let req = msg.message();
                 assert_eq!(req.version(), Version::HTTP_11);
                 assert_eq!(*req.method(), Method::GET);
                 assert_eq!(req.path(), "/test");
@@ -795,7 +789,7 @@ mod tests {
         let settings = WorkerSettings::<HttpApplication>::new(Vec::new(), KeepAlive::Os);
         let mut reader = H1Decoder::new();
         let msg = reader.decode(&mut buf, &settings).unwrap().unwrap();
-        let req = HttpRequest::from_message(msg.message());
+        let req = msg.message();
 
         let val: Vec<_> = req
             .headers()
@@ -998,7 +992,7 @@ mod tests {
         let mut reader = H1Decoder::new();
         let msg = reader.decode(&mut buf, &settings).unwrap().unwrap();
         assert!(msg.is_payload());
-        let req = HttpRequest::from_message(msg.message());
+        let req = msg.message();
         assert!(!req.keep_alive());
         assert!(req.upgrade());
         assert_eq!(
@@ -1059,7 +1053,7 @@ mod tests {
         let mut reader = H1Decoder::new();
         let msg = reader.decode(&mut buf, &settings).unwrap().unwrap();
         assert!(msg.is_payload());
-        let req = HttpRequest::from_message(msg.message());
+        let req = msg.message();
         assert!(req.chunked().unwrap());
 
         buf.extend(b"4\r\ndata\r\n4\r\nline\r\n0\r\n\r\n");
@@ -1094,7 +1088,7 @@ mod tests {
         let mut reader = H1Decoder::new();
         let msg = reader.decode(&mut buf, &settings).unwrap().unwrap();
         assert!(msg.is_payload());
-        let req = HttpRequest::from_message(msg.message());
+        let req = msg.message();
         assert!(req.chunked().unwrap());
 
         buf.extend(
@@ -1112,7 +1106,7 @@ mod tests {
 
         let msg = reader.decode(&mut buf, &settings).unwrap().unwrap();
         assert!(msg.is_payload());
-        let req2 = HttpRequest::from_message(msg.message());
+        let req2 = msg.message();
         assert!(req2.chunked().unwrap());
         assert_eq!(*req2.method(), Method::POST);
         assert!(req2.chunked().unwrap());
@@ -1129,7 +1123,7 @@ mod tests {
         let mut reader = H1Decoder::new();
         let msg = reader.decode(&mut buf, &settings).unwrap().unwrap();
         assert!(msg.is_payload());
-        let req = HttpRequest::from_message(msg.message());
+        let req = msg.message();
         assert!(req.chunked().unwrap());
 
         buf.extend(b"4\r\n1111\r\n");
@@ -1176,8 +1170,7 @@ mod tests {
         let mut reader = H1Decoder::new();
         let msg = reader.decode(&mut buf, &settings).unwrap().unwrap();
         assert!(msg.is_payload());
-        let req = HttpRequest::from_message(msg.message());
-        assert!(req.chunked().unwrap());
+        assert!(msg.message().chunked().unwrap());
 
         buf.extend(b"4;test\r\ndata\r\n4\r\nline\r\n0\r\n\r\n"); // test: test\r\n\r\n")
         let chunk = reader.decode(&mut buf, &settings).unwrap().unwrap().chunk();

@@ -29,7 +29,9 @@ use param::Params;
 use payload::Payload;
 use resource::ResourceHandler;
 use router::Router;
-use server::{HttpServer, IntoHttpHandler, ServerSettings};
+use server::{HttpServer, IntoHttpHandler, RequestContext, ServerSettings};
+use state::{RequestState, RouterResource};
+use uri::Url as InnerUrl;
 use ws;
 
 /// The `TestServer` type.
@@ -330,8 +332,12 @@ impl<S: 'static> TestApp<S> {
     }
 
     /// Register handler for "/"
-    pub fn handler<H: Handler<S>>(&mut self, handler: H) {
-        self.app = Some(self.app.take().unwrap().resource("/", |r| r.h(handler)));
+    pub fn handler<F, R>(&mut self, handler: F)
+    where
+        F: Fn(&HttpRequest<S>) -> R + 'static,
+        R: Responder + 'static,
+    {
+        self.app = Some(self.app.take().unwrap().resource("/", |r| r.f(handler)));
     }
 
     /// Register middleware
@@ -533,11 +539,18 @@ impl<S: 'static> TestRequest<S> {
             cookies,
             payload,
         } = self;
-        let mut req = HttpRequest::new(method, uri, version, headers, payload);
-        req.set_cookies(cookies);
-        req.as_mut().params = params;
         let (router, _) = Router::new::<S>("/", ServerSettings::default(), Vec::new());
-        req.with_state(Rc::new(state), router)
+        let state = RequestState::with_router(Rc::new(state), router);
+
+        let mut ctx = RequestContext::default();
+        ctx.inner.method = method;
+        ctx.inner.url = InnerUrl::new(uri);
+        ctx.inner.version = version;
+        ctx.inner.headers = headers;
+        ctx.inner.params = params;
+        *ctx.inner.payload.borrow_mut() = payload;
+        // req.set_cookies(cookies);
+        HttpRequest::from_state(ctx, state)
     }
 
     #[cfg(test)]
@@ -554,10 +567,69 @@ impl<S: 'static> TestRequest<S> {
             payload,
         } = self;
 
-        let mut req = HttpRequest::new(method, uri, version, headers, payload);
-        req.set_cookies(cookies);
-        req.as_mut().params = params;
-        req.with_state(Rc::new(state), router)
+        let state = RequestState::with_router(Rc::new(state), router);
+        let mut ctx = RequestContext::default();
+        ctx.inner.method = method;
+        ctx.inner.url = InnerUrl::new(uri);
+        ctx.inner.version = version;
+        ctx.inner.headers = headers;
+        ctx.inner.params = params;
+        *ctx.inner.payload.borrow_mut() = payload;
+        //req.set_cookies(cookies);
+        HttpRequest::from_state(ctx, state)
+    }
+
+    /// Complete request creation and generate `HttpRequest` instance
+    pub fn context(self) -> (RequestContext, RequestState<S>) {
+        let TestRequest {
+            state,
+            method,
+            uri,
+            version,
+            headers,
+            params,
+            cookies,
+            payload,
+        } = self;
+        let (router, _) = Router::new::<S>("/", ServerSettings::default(), Vec::new());
+        let state = RequestState::with_router(Rc::new(state), router);
+        let mut ctx = RequestContext::default();
+        ctx.inner.method = method;
+        ctx.inner.url = InnerUrl::new(uri);
+        ctx.inner.version = version;
+        ctx.inner.headers = headers;
+        ctx.inner.params = params;
+        *ctx.inner.payload.borrow_mut() = payload;
+        // req.set_cookies(cookies);
+        (ctx, state)
+    }
+
+    #[cfg(test)]
+    /// Complete request creation and generate `HttpRequest` instance
+    pub(crate) fn context_with_router(
+        self, router: Router,
+    ) -> (RequestContext, RequestState<S>) {
+        let TestRequest {
+            state,
+            method,
+            uri,
+            version,
+            headers,
+            params,
+            cookies,
+            payload,
+        } = self;
+
+        let state = RequestState::with_router(Rc::new(state), router);
+        let mut ctx = RequestContext::default();
+        ctx.inner.method = method;
+        ctx.inner.url = InnerUrl::new(uri);
+        ctx.inner.version = version;
+        ctx.inner.headers = headers;
+        ctx.inner.params = params;
+        *ctx.inner.payload.borrow_mut() = payload;
+        //req.set_cookies(cookies);
+        (ctx, state)
     }
 
     /// This method generates `HttpRequest` instance and runs handler
@@ -566,7 +638,7 @@ impl<S: 'static> TestRequest<S> {
     /// This method panics is handler returns actor or async result.
     pub fn run<H: Handler<S>>(self, h: &H) -> Result<HttpResponse, Error> {
         let req = self.finish();
-        let resp = h.handle(req.clone());
+        let resp = h.handle(&req);
 
         match resp.respond_to(&req) {
             Ok(resp) => match resp.into().into() {

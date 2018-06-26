@@ -6,10 +6,10 @@ use regex::{escape, Regex};
 use smallvec::SmallVec;
 
 use error::UrlGenerationError;
-use httprequest::HttpRequest;
 use param::ParamItem;
 use resource::ResourceHandler;
-use server::ServerSettings;
+use server::{RequestContext, ServerSettings};
+use state::RequestState;
 
 /// Interface for application router.
 pub struct Router(Rc<Inner>);
@@ -75,7 +75,9 @@ impl Router {
     }
 
     /// Query for matched resource
-    pub fn recognize<S>(&self, req: &mut HttpRequest<S>) -> Option<usize> {
+    pub fn recognize<S: 'static>(
+        &self, req: &mut RequestContext, state: &mut RequestState<S>,
+    ) -> Option<usize> {
         if self.0.prefix_len > req.path().len() {
             return None;
         }
@@ -83,8 +85,8 @@ impl Router {
             if pattern.match_with_params(req, self.0.prefix_len, true) {
                 let url = req.url().clone();
                 req.match_info_mut().set_url(url);
-                req.set_resource(idx);
                 req.set_prefix_len(self.0.prefix_len as u16);
+                state.set_resource(idx);
                 return Some(idx);
             }
         }
@@ -208,9 +210,7 @@ impl Resource {
             // actix creates one router per thread
             let names = re
                 .capture_names()
-                .filter_map(|name| {
-                    name.map(|name| Rc::new(name.to_owned()))
-                })
+                .filter_map(|name| name.map(|name| Rc::new(name.to_owned())))
                 .collect();
             PatternType::Dynamic(re, names, len)
         } else if for_prefix {
@@ -253,8 +253,8 @@ impl Resource {
     }
 
     /// Are the given path and parameters a match against this resource?
-    pub fn match_with_params<S>(
-        &self, req: &mut HttpRequest<S>, plen: usize, insert: bool,
+    pub fn match_with_params(
+        &self, req: &mut RequestContext, plen: usize, insert: bool,
     ) -> bool {
         let mut segments: SmallVec<[ParamItem; 5]> = SmallVec::new();
 
@@ -306,8 +306,8 @@ impl Resource {
     }
 
     /// Is the given path a prefix match and do the parameters match against this resource?
-    pub fn match_prefix_with_params<S>(
-        &self, req: &mut HttpRequest<S>, plen: usize,
+    pub fn match_prefix_with_params(
+        &self, req: &mut RequestContext, plen: usize,
     ) -> Option<usize> {
         let mut segments: SmallVec<[ParamItem; 5]> = SmallVec::new();
 
@@ -548,43 +548,43 @@ mod tests {
         ];
         let (rec, _) = Router::new::<()>("", ServerSettings::default(), routes);
 
-        let mut req = TestRequest::with_uri("/name").finish();
-        assert_eq!(rec.recognize(&mut req), Some(0));
-        assert!(req.match_info().is_empty());
+        let mut req = TestRequest::with_uri("/name").context();
+        assert_eq!(rec.recognize(&mut req.0, &mut req.1), Some(0));
+        assert!(req.0.match_info().is_empty());
 
-        let mut req = TestRequest::with_uri("/name/value").finish();
-        assert_eq!(rec.recognize(&mut req), Some(1));
-        assert_eq!(req.match_info().get("val").unwrap(), "value");
-        assert_eq!(&req.match_info()["val"], "value");
+        let mut req = TestRequest::with_uri("/name/value").context();
+        assert_eq!(rec.recognize(&mut req.0, &mut req.1), Some(1));
+        assert_eq!(req.0.match_info().get("val").unwrap(), "value");
+        assert_eq!(&req.0.match_info()["val"], "value");
 
-        let mut req = TestRequest::with_uri("/name/value2/index.html").finish();
-        assert_eq!(rec.recognize(&mut req), Some(2));
-        assert_eq!(req.match_info().get("val").unwrap(), "value2");
+        let mut req = TestRequest::with_uri("/name/value2/index.html").context();
+        assert_eq!(rec.recognize(&mut req.0, &mut req.1), Some(2));
+        assert_eq!(req.0.match_info().get("val").unwrap(), "value2");
 
-        let mut req = TestRequest::with_uri("/file/file.gz").finish();
-        assert_eq!(rec.recognize(&mut req), Some(3));
-        assert_eq!(req.match_info().get("file").unwrap(), "file");
-        assert_eq!(req.match_info().get("ext").unwrap(), "gz");
+        let mut req = TestRequest::with_uri("/file/file.gz").context();
+        assert_eq!(rec.recognize(&mut req.0, &mut req.1), Some(3));
+        assert_eq!(req.0.match_info().get("file").unwrap(), "file");
+        assert_eq!(req.0.match_info().get("ext").unwrap(), "gz");
 
-        let mut req = TestRequest::with_uri("/vtest/ttt/index.html").finish();
-        assert_eq!(rec.recognize(&mut req), Some(4));
-        assert_eq!(req.match_info().get("val").unwrap(), "test");
-        assert_eq!(req.match_info().get("val2").unwrap(), "ttt");
+        let mut req = TestRequest::with_uri("/vtest/ttt/index.html").context();
+        assert_eq!(rec.recognize(&mut req.0, &mut req.1), Some(4));
+        assert_eq!(req.0.match_info().get("val").unwrap(), "test");
+        assert_eq!(req.0.match_info().get("val2").unwrap(), "ttt");
 
-        let mut req = TestRequest::with_uri("/v/blah-blah/index.html").finish();
-        assert_eq!(rec.recognize(&mut req), Some(5));
+        let mut req = TestRequest::with_uri("/v/blah-blah/index.html").context();
+        assert_eq!(rec.recognize(&mut req.0, &mut req.1), Some(5));
         assert_eq!(
-            req.match_info().get("tail").unwrap(),
+            req.0.match_info().get("tail").unwrap(),
             "blah-blah/index.html"
         );
 
-        let mut req = TestRequest::with_uri("/test2/index.html").finish();
-        assert_eq!(rec.recognize(&mut req), Some(6));
-        assert_eq!(req.match_info().get("test").unwrap(), "index");
+        let mut req = TestRequest::with_uri("/test2/index.html").context();
+        assert_eq!(rec.recognize(&mut req.0, &mut req.1), Some(6));
+        assert_eq!(req.0.match_info().get("test").unwrap(), "index");
 
-        let mut req = TestRequest::with_uri("/bbb/index.html").finish();
-        assert_eq!(rec.recognize(&mut req), Some(7));
-        assert_eq!(req.match_info().get("test").unwrap(), "bbb");
+        let mut req = TestRequest::with_uri("/bbb/index.html").context();
+        assert_eq!(rec.recognize(&mut req.0, &mut req.1), Some(7));
+        assert_eq!(req.0.match_info().get("test").unwrap(), "bbb");
     }
 
     #[test]
@@ -601,11 +601,11 @@ mod tests {
         ];
         let (rec, _) = Router::new::<()>("", ServerSettings::default(), routes);
 
-        let mut req = TestRequest::with_uri("/index.json").finish();
-        assert_eq!(rec.recognize(&mut req), Some(0));
+        let mut req = TestRequest::with_uri("/index.json").context();
+        assert_eq!(rec.recognize(&mut req.0, &mut req.1), Some(0));
 
-        let mut req = TestRequest::with_uri("/test.json").finish();
-        assert_eq!(rec.recognize(&mut req), Some(1));
+        let mut req = TestRequest::with_uri("/test.json").context();
+        assert_eq!(rec.recognize(&mut req.0, &mut req.1), Some(1));
     }
 
     #[test]
@@ -619,16 +619,16 @@ mod tests {
         ];
         let (rec, _) = Router::new::<()>("/test", ServerSettings::default(), routes);
 
-        let mut req = TestRequest::with_uri("/name").finish();
-        assert!(rec.recognize(&mut req).is_none());
+        let mut req = TestRequest::with_uri("/name").context();
+        assert!(rec.recognize(&mut req.0, &mut req.1).is_none());
 
-        let mut req = TestRequest::with_uri("/test/name").finish();
-        assert_eq!(rec.recognize(&mut req), Some(0));
+        let mut req = TestRequest::with_uri("/test/name").context();
+        assert_eq!(rec.recognize(&mut req.0, &mut req.1), Some(0));
 
-        let mut req = TestRequest::with_uri("/test/name/value").finish();
-        assert_eq!(rec.recognize(&mut req), Some(1));
-        assert_eq!(req.match_info().get("val").unwrap(), "value");
-        assert_eq!(&req.match_info()["val"], "value");
+        let mut req = TestRequest::with_uri("/test/name/value").context();
+        assert_eq!(rec.recognize(&mut req.0, &mut req.1), Some(1));
+        assert_eq!(req.0.match_info().get("val").unwrap(), "value");
+        assert_eq!(&req.0.match_info()["val"], "value");
 
         // same patterns
         let routes = vec![
@@ -640,15 +640,15 @@ mod tests {
         ];
         let (rec, _) = Router::new::<()>("/test2", ServerSettings::default(), routes);
 
-        let mut req = TestRequest::with_uri("/name").finish();
-        assert!(rec.recognize(&mut req).is_none());
-        let mut req = TestRequest::with_uri("/test2/name").finish();
-        assert_eq!(rec.recognize(&mut req), Some(0));
-        let mut req = TestRequest::with_uri("/test2/name-test").finish();
-        assert!(rec.recognize(&mut req).is_none());
-        let mut req = TestRequest::with_uri("/test2/name/ttt").finish();
-        assert_eq!(rec.recognize(&mut req), Some(1));
-        assert_eq!(&req.match_info()["val"], "ttt");
+        let mut req = TestRequest::with_uri("/name").context();
+        assert!(rec.recognize(&mut req.0, &mut req.1).is_none());
+        let mut req = TestRequest::with_uri("/test2/name").context();
+        assert_eq!(rec.recognize(&mut req.0, &mut req.1), Some(0));
+        let mut req = TestRequest::with_uri("/test2/name-test").context();
+        assert!(rec.recognize(&mut req.0, &mut req.1).is_none());
+        let mut req = TestRequest::with_uri("/test2/name/ttt").context();
+        assert_eq!(rec.recognize(&mut req.0, &mut req.1), Some(1));
+        assert_eq!(&req.0.match_info()["val"], "ttt");
     }
 
     #[test]
@@ -681,29 +681,29 @@ mod tests {
         assert!(!re.is_match("/user/2345/"));
         assert!(!re.is_match("/user/2345/sdg"));
 
-        let mut req = TestRequest::with_uri("/user/profile").finish();
-        let url = req.url().clone();
-        req.match_info_mut().set_url(url);
-        assert!(re.match_with_params(&mut req, 0, true));
-        assert_eq!(req.match_info().get("id").unwrap(), "profile");
+        let mut req = TestRequest::with_uri("/user/profile").context();
+        let url = req.0.url().clone();
+        req.0.match_info_mut().set_url(url);
+        assert!(re.match_with_params(&mut req.0, 0, true));
+        assert_eq!(req.0.match_info().get("id").unwrap(), "profile");
 
-        let mut req = TestRequest::with_uri("/user/1245125").finish();
-        let url = req.url().clone();
-        req.match_info_mut().set_url(url);
-        assert!(re.match_with_params(&mut req, 0, true));
-        assert_eq!(req.match_info().get("id").unwrap(), "1245125");
+        let mut req = TestRequest::with_uri("/user/1245125").context();
+        let url = req.0.url().clone();
+        req.0.match_info_mut().set_url(url);
+        assert!(re.match_with_params(&mut req.0, 0, true));
+        assert_eq!(req.0.match_info().get("id").unwrap(), "1245125");
 
         let re = Resource::new("test", "/v{version}/resource/{id}");
         assert!(re.is_match("/v1/resource/320120"));
         assert!(!re.is_match("/v/resource/1"));
         assert!(!re.is_match("/resource"));
 
-        let mut req = TestRequest::with_uri("/v151/resource/adahg32").finish();
-        let url = req.url().clone();
-        req.match_info_mut().set_url(url);
-        assert!(re.match_with_params(&mut req, 0, true));
-        assert_eq!(req.match_info().get("version").unwrap(), "151");
-        assert_eq!(req.match_info().get("id").unwrap(), "adahg32");
+        let mut req = TestRequest::with_uri("/v151/resource/adahg32").context();
+        let url = req.0.url().clone();
+        req.0.match_info_mut().set_url(url);
+        assert!(re.match_with_params(&mut req.0, 0, true));
+        assert_eq!(req.0.match_info().get("version").unwrap(), "151");
+        assert_eq!(req.0.match_info().get("id").unwrap(), "adahg32");
     }
 
     #[test]
@@ -728,14 +728,14 @@ mod tests {
         assert!(re.is_match("/name/gs"));
         assert!(!re.is_match("/name"));
 
-        let mut req = TestRequest::with_uri("/test2/").finish();
-        let url = req.url().clone();
-        req.match_info_mut().set_url(url);
-        assert!(re.match_with_params(&mut req, 0, true));
-        assert_eq!(&req.match_info()["name"], "test2");
+        let mut req = TestRequest::with_uri("/test2/").context();
+        let url = req.0.url().clone();
+        req.0.match_info_mut().set_url(url);
+        assert!(re.match_with_params(&mut req.0, 0, true));
+        assert_eq!(&req.0.match_info()["name"], "test2");
 
-        let mut req =
-            TestRequest::with_uri("/test2/subpath1/subpath2/index.html").finish();
+        let (mut req, mut state) =
+            TestRequest::with_uri("/test2/subpath1/subpath2/index.html").context();
         let url = req.url().clone();
         req.match_info_mut().set_url(url);
         assert!(re.match_with_params(&mut req, 0, true));
@@ -756,16 +756,16 @@ mod tests {
         ];
         let (router, _) = Router::new::<()>("", ServerSettings::default(), routes);
 
-        let mut req =
-            TestRequest::with_uri("/index.json").finish_with_router(router.clone());
-        assert_eq!(router.recognize(&mut req), Some(0));
-        let resource = req.resource().unwrap();
+        let (mut req, mut state) =
+            TestRequest::with_uri("/index.json").context_with_router(router.clone());
+        assert_eq!(router.recognize(&mut req, &mut state), Some(0));
+        let resource = state.resource().unwrap();
         assert_eq!(resource.name(), "r1");
 
-        let mut req =
-            TestRequest::with_uri("/test.json").finish_with_router(router.clone());
-        assert_eq!(router.recognize(&mut req), Some(1));
-        let resource = req.resource().unwrap();
+        let (mut req, mut state) =
+            TestRequest::with_uri("/test.json").context_with_router(router.clone());
+        assert_eq!(router.recognize(&mut req, &mut state), Some(1));
+        let resource = state.resource().unwrap();
         assert_eq!(resource.name(), "r2");
     }
 }

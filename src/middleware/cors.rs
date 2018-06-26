@@ -60,6 +60,8 @@ use httprequest::HttpRequest;
 use httpresponse::HttpResponse;
 use middleware::{Middleware, Response, Started};
 use resource::ResourceHandler;
+use server::RequestContext;
+use state::RequestState;
 
 /// A set of errors that can occur during processing CORS
 #[derive(Debug, Fail)]
@@ -279,11 +281,13 @@ impl Cors {
     /// `ResourceHandler::middleware()` method, but in that case *Cors*
     /// middleware wont be able to handle *OPTIONS* requests.
     pub fn register<S: 'static>(self, resource: &mut ResourceHandler<S>) {
-        resource.method(Method::OPTIONS).h(|_| HttpResponse::Ok());
+        resource
+            .method(Method::OPTIONS)
+            .h(|_: &_| HttpResponse::Ok());
         resource.middleware(self);
     }
 
-    fn validate_origin<S>(&self, req: &mut HttpRequest<S>) -> Result<(), CorsError> {
+    fn validate_origin(&self, req: &mut RequestContext) -> Result<(), CorsError> {
         if let Some(hdr) = req.headers().get(header::ORIGIN) {
             if let Ok(origin) = hdr.to_str() {
                 return match self.inner.origins {
@@ -303,8 +307,8 @@ impl Cors {
         }
     }
 
-    fn validate_allowed_method<S>(
-        &self, req: &mut HttpRequest<S>,
+    fn validate_allowed_method(
+        &self, req: &mut RequestContext,
     ) -> Result<(), CorsError> {
         if let Some(hdr) = req.headers().get(header::ACCESS_CONTROL_REQUEST_METHOD) {
             if let Ok(meth) = hdr.to_str() {
@@ -323,8 +327,8 @@ impl Cors {
         }
     }
 
-    fn validate_allowed_headers<S>(
-        &self, req: &mut HttpRequest<S>,
+    fn validate_allowed_headers(
+        &self, req: &mut RequestContext,
     ) -> Result<(), CorsError> {
         match self.inner.headers {
             AllOrSome::All => Ok(()),
@@ -356,7 +360,9 @@ impl Cors {
 }
 
 impl<S> Middleware<S> for Cors {
-    fn start(&self, req: &mut HttpRequest<S>) -> Result<Started> {
+    fn start(
+        &self, req: &mut RequestContext, state: &RequestState<S>,
+    ) -> Result<Started> {
         if self.inner.preflight && Method::OPTIONS == *req.method() {
             self.validate_origin(req)?;
             self.validate_allowed_method(req)?;
@@ -945,10 +951,10 @@ mod tests {
     #[test]
     fn validate_origin_allows_all_origins() {
         let cors = Cors::default();
-        let mut req =
-            TestRequest::with_header("Origin", "https://www.example.com").finish();
+        let (mut req, state) =
+            TestRequest::with_header("Origin", "https://www.example.com").context();
 
-        assert!(cors.start(&mut req).ok().unwrap().is_done())
+        assert!(cors.start(&mut req, &state).ok().unwrap().is_done())
     }
 
     #[test]
@@ -961,29 +967,32 @@ mod tests {
             .allowed_header(header::CONTENT_TYPE)
             .finish();
 
-        let mut req = TestRequest::with_header("Origin", "https://www.example.com")
-            .method(Method::OPTIONS)
-            .finish();
+        let (mut req, state) =
+            TestRequest::with_header("Origin", "https://www.example.com")
+                .method(Method::OPTIONS)
+                .context();
 
-        assert!(cors.start(&mut req).is_err());
+        assert!(cors.start(&mut req, &state).is_err());
 
-        let mut req = TestRequest::with_header("Origin", "https://www.example.com")
-            .header(header::ACCESS_CONTROL_REQUEST_METHOD, "put")
-            .method(Method::OPTIONS)
-            .finish();
+        let (mut req, state) =
+            TestRequest::with_header("Origin", "https://www.example.com")
+                .header(header::ACCESS_CONTROL_REQUEST_METHOD, "put")
+                .method(Method::OPTIONS)
+                .context();
 
-        assert!(cors.start(&mut req).is_err());
+        assert!(cors.start(&mut req, &state).is_err());
 
-        let mut req = TestRequest::with_header("Origin", "https://www.example.com")
-            .header(header::ACCESS_CONTROL_REQUEST_METHOD, "POST")
-            .header(
-                header::ACCESS_CONTROL_REQUEST_HEADERS,
-                "AUTHORIZATION,ACCEPT",
-            )
-            .method(Method::OPTIONS)
-            .finish();
+        let (mut req, state) =
+            TestRequest::with_header("Origin", "https://www.example.com")
+                .header(header::ACCESS_CONTROL_REQUEST_METHOD, "POST")
+                .header(
+                    header::ACCESS_CONTROL_REQUEST_HEADERS,
+                    "AUTHORIZATION,ACCEPT",
+                )
+                .method(Method::OPTIONS)
+                .context();
 
-        let resp = cors.start(&mut req).unwrap().response();
+        let resp = cors.start(&mut req, &state).unwrap().response();
         assert_eq!(
             &b"*"[..],
             resp.headers()
@@ -1007,7 +1016,7 @@ mod tests {
         // as_bytes());
 
         Rc::get_mut(&mut cors.inner).unwrap().preflight = false;
-        assert!(cors.start(&mut req).unwrap().is_done());
+        assert!(cors.start(&mut req, &state).unwrap().is_done());
     }
 
     // #[test]
@@ -1027,10 +1036,11 @@ mod tests {
             .allowed_origin("https://www.example.com")
             .finish();
 
-        let mut req = TestRequest::with_header("Origin", "https://www.unknown.com")
-            .method(Method::GET)
-            .finish();
-        cors.start(&mut req).unwrap();
+        let (mut req, state) =
+            TestRequest::with_header("Origin", "https://www.unknown.com")
+                .method(Method::GET)
+                .context();
+        cors.start(&mut req, &state).unwrap();
     }
 
     #[test]
@@ -1039,11 +1049,12 @@ mod tests {
             .allowed_origin("https://www.example.com")
             .finish();
 
-        let mut req = TestRequest::with_header("Origin", "https://www.example.com")
-            .method(Method::GET)
-            .finish();
+        let (mut req, state) =
+            TestRequest::with_header("Origin", "https://www.example.com")
+                .method(Method::GET)
+                .context();
 
-        assert!(cors.start(&mut req).unwrap().is_done());
+        assert!(cors.start(&mut req, &state).unwrap().is_done());
     }
 
     #[test]

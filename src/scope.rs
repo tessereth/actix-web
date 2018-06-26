@@ -5,7 +5,9 @@ use std::rc::Rc;
 use futures::{Async, Future, Poll};
 
 use error::Error;
-use handler::{AsyncResult, AsyncResultItem, FromRequest, Responder, RouteHandler};
+use handler::{
+    AsyncResult, AsyncResultItem, FromRequest, Responder, RouteHandler, RouteResult,
+};
 use http::{Method, StatusCode};
 use httprequest::HttpRequest;
 use httpresponse::HttpResponse;
@@ -14,8 +16,10 @@ use middleware::{
     Started as MiddlewareStarted,
 };
 use pred::Predicate;
-use resource::ResourceHandler;
+use resource::{ResourceHandler, RouteId};
 use router::Resource;
+use server::RequestContext;
+use state::RequestState;
 
 type ScopeResource<S> = Rc<ResourceHandler<S>>;
 type Route<S> = Box<RouteHandler<S>>;
@@ -334,75 +338,65 @@ impl<S: 'static> Scope<S> {
 }
 
 impl<S: 'static> RouteHandler<S> for Scope<S> {
-    fn handle(&self, mut req: HttpRequest<S>) -> AsyncResult<HttpResponse> {
-        let tail = req.match_info().tail as usize;
+    fn handle(&self, mut msg: RequestContext, state: RequestState<S>) -> RouteResult<S> {
+        let tail = msg.match_info().tail as usize;
 
         // recognize resources
         for &(ref pattern, ref resource) in self.resources.iter() {
-            if pattern.match_with_params(&mut req, tail, false) {
-                if self.middlewares.is_empty() {
-                    return match resource.handle(req) {
-                        Ok(result) => result,
-                        Err(req) => {
-                            if let Some(ref default) = self.default {
-                                match default.handle(req) {
-                                    Ok(result) => result,
-                                    Err(_) => AsyncResult::ok(HttpResponse::new(
-                                        StatusCode::NOT_FOUND,
-                                    )),
-                                }
-                            } else {
-                                AsyncResult::ok(HttpResponse::new(StatusCode::NOT_FOUND))
-                            }
-                        }
-                    };
-                } else {
-                    return AsyncResult::async(Box::new(Compose::new(
-                        req,
-                        Rc::clone(&self.middlewares),
-                        Rc::clone(&resource),
-                    )));
+            if pattern.match_with_params(&mut msg, tail, false) {
+                if let Some(id) = resource.get_route_id(&mut msg, &state) {
+                    if self.middlewares.is_empty() {
+                        return resource.handle(id, msg, state);
+                    } else {
+                        return AsyncResult::async(Box::new(Compose::new(
+                            id,
+                            msg,
+                            state,
+                            Rc::clone(&self.middlewares),
+                            Rc::clone(&resource),
+                        )));
+                    }
                 }
             }
         }
 
         // nested scopes
-        let len = req.prefix_len() as usize;
+        let len = msg.prefix_len() as usize;
         'outer: for &(ref prefix, ref handler, ref filters) in &self.nested {
-            if let Some(prefix_len) = prefix.match_prefix_with_params(&mut req, len) {
+            if let Some(prefix_len) = prefix.match_prefix_with_params(&mut msg, len) {
                 for filter in filters {
-                    if !filter.check(&mut req) {
+                    if !filter.check(&mut msg, state.state.as_ref()) {
                         continue 'outer;
                     }
                 }
-                let url = req.url().clone();
+                let url = msg.url().clone();
                 let prefix_len = (len + prefix_len) as u16;
-                req.set_prefix_len(prefix_len);
-                req.match_info_mut().set_tail(prefix_len);
-                req.match_info_mut().set_url(url);
-                return handler.handle(req);
+                msg.set_prefix_len(prefix_len);
+                msg.match_info_mut().set_tail(prefix_len);
+                msg.match_info_mut().set_url(url);
+                return handler.handle(msg, state);
             }
         }
 
         // default handler
-        if self.middlewares.is_empty() {
-            if let Some(ref default) = self.default {
-                match default.handle(req) {
-                    Ok(result) => result,
-                    Err(_) => AsyncResult::ok(HttpResponse::new(StatusCode::NOT_FOUND)),
+        if let Some(ref resource) = self.default {
+            if let Some(id) = resource.get_route_id(&mut msg, &state) {
+                if self.middlewares.is_empty() {
+                    return resource.handle(id, msg, state);
+                } else {
+                    return AsyncResult::async(Box::new(Compose::new(
+                        id,
+                        msg,
+                        state,
+                        Rc::clone(&self.middlewares),
+                        Rc::clone(resource),
+                    )));
                 }
-            } else {
-                AsyncResult::ok(HttpResponse::new(StatusCode::NOT_FOUND))
             }
-        } else if let Some(ref default) = self.default {
-            AsyncResult::async(Box::new(Compose::new(
-                req,
-                Rc::clone(&self.middlewares),
-                Rc::clone(default),
-            )))
-        } else {
-            unimplemented!()
         }
+
+        let req = HttpRequest::from_state(msg, state);
+        AsyncResult::ok((req, HttpResponse::new(StatusCode::NOT_FOUND)))
     }
 
     fn has_default_resource(&self) -> bool {
@@ -420,8 +414,12 @@ struct Wrapper<S: 'static> {
 }
 
 impl<S: 'static, S2: 'static> RouteHandler<S2> for Wrapper<S> {
-    fn handle(&self, req: HttpRequest<S2>) -> AsyncResult<HttpResponse> {
-        self.scope.handle(req.change_state(Rc::clone(&self.state)))
+    fn handle(&self, msg: RequestContext, state: RequestState<S2>) -> RouteResult<S2> {
+        //let (result, req) = self
+        //    .scope
+        //    .handle(msg, state.change_state(Rc::clone(&self.state)));
+        //(result, req.change_state())
+        unimplemented!()
     }
 }
 
@@ -431,10 +429,9 @@ struct FiltersWrapper<S: 'static> {
 }
 
 impl<S: 'static, S2: 'static> Predicate<S2> for FiltersWrapper<S> {
-    fn check(&self, req: &mut HttpRequest<S2>) -> bool {
-        let mut req = req.change_state(Rc::clone(&self.state));
+    fn check(&self, msg: &mut RequestContext, _: &S2) -> bool {
         for filter in &self.filters {
-            if !filter.check(&mut req) {
+            if !filter.check(msg, &self.state) {
                 return false;
             }
         }
@@ -450,7 +447,9 @@ struct Compose<S: 'static> {
 
 struct ComposeInfo<S: 'static> {
     count: usize,
-    req: HttpRequest<S>,
+    id: RouteId,
+    ctx: Option<(RequestContext, RequestState<S>)>,
+    req: Option<HttpRequest<S>>,
     mws: Rc<Vec<Box<Middleware<S>>>>,
     resource: Rc<ResourceHandler<S>>,
 }
@@ -477,14 +476,16 @@ impl<S: 'static> ComposeState<S> {
 
 impl<S: 'static> Compose<S> {
     fn new(
-        req: HttpRequest<S>, mws: Rc<Vec<Box<Middleware<S>>>>,
-        resource: Rc<ResourceHandler<S>>,
+        id: RouteId, msg: RequestContext, state: RequestState<S>,
+        mws: Rc<Vec<Box<Middleware<S>>>>, resource: Rc<ResourceHandler<S>>,
     ) -> Self {
         let mut info = ComposeInfo {
-            count: 0,
-            req,
+            id,
             mws,
             resource,
+            count: 0,
+            req: None,
+            ctx: Some((msg, state)),
         };
         let state = StartMiddlewares::init(&mut info);
 
@@ -493,14 +494,15 @@ impl<S: 'static> Compose<S> {
 }
 
 impl<S> Future for Compose<S> {
-    type Item = HttpResponse;
-    type Error = Error;
+    type Item = (HttpRequest<S>, HttpResponse);
+    type Error = (HttpRequest<S>, Error);
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         loop {
             if let ComposeState::Completed(ref mut resp) = self.state {
+                let req = self.info.req.take().unwrap();
                 let resp = resp.resp.take().unwrap();
-                return Ok(Async::Ready(resp));
+                return Ok(Async::Ready((req, resp)));
             }
             if let Some(state) = self.state.poll(&mut self.info) {
                 self.state = state;
@@ -522,27 +524,31 @@ type Fut = Box<Future<Item = Option<HttpResponse>, Error = Error>>;
 impl<S: 'static> StartMiddlewares<S> {
     fn init(info: &mut ComposeInfo<S>) -> ComposeState<S> {
         let len = info.mws.len();
+        let (mut ctx, state) = info.ctx.take().unwrap();
+
         loop {
             if info.count == len {
-                let reply = {
-                    let req = info.req.clone();
-                    info.resource.handle(req).unwrap()
-                };
+                let reply = info.resource.handle(info.id, ctx, state);
                 return WaitingResponse::init(info, reply);
             } else {
-                let state = info.mws[info.count].start(&mut info.req);
-                match state {
+                let result = info.mws[info.count].start(&mut ctx, &state);
+                match result {
                     Ok(MiddlewareStarted::Done) => info.count += 1,
                     Ok(MiddlewareStarted::Response(resp)) => {
-                        return RunMiddlewares::init(info, resp)
+                        let req = HttpRequest::from_state(ctx, state);
+                        return RunMiddlewares::init(info, req, resp);
                     }
                     Ok(MiddlewareStarted::Future(fut)) => {
+                        info.ctx = Some((ctx, state));
                         return ComposeState::Starting(StartMiddlewares {
                             fut: Some(fut),
                             _s: PhantomData,
-                        })
+                        });
                     }
-                    Err(err) => return RunMiddlewares::init(info, err.into()),
+                    Err(err) => {
+                        let req = HttpRequest::from_state(ctx, state);
+                        return RunMiddlewares::init(info, req, err.into());
+                    }
                 }
             }
         }
@@ -550,59 +556,75 @@ impl<S: 'static> StartMiddlewares<S> {
 
     fn poll(&mut self, info: &mut ComposeInfo<S>) -> Option<ComposeState<S>> {
         let len = info.mws.len();
+        let (mut ctx, state) = info.ctx.take().unwrap();
+
         'outer: loop {
             match self.fut.as_mut().unwrap().poll() {
-                Ok(Async::NotReady) => return None,
+                Ok(Async::NotReady) => {
+                    info.ctx = Some((ctx, state));
+                    return None;
+                }
                 Ok(Async::Ready(resp)) => {
                     info.count += 1;
+
                     if let Some(resp) = resp {
-                        return Some(RunMiddlewares::init(info, resp));
+                        let req = HttpRequest::from_state(ctx, state);
+                        return Some(RunMiddlewares::init(info, req, resp));
                     }
                     loop {
                         if info.count == len {
-                            let reply = {
-                                let req = info.req.clone();
-                                info.resource.handle(req).unwrap()
-                            };
+                            let reply = { info.resource.handle(info.id, ctx, state) };
                             return Some(WaitingResponse::init(info, reply));
                         } else {
-                            let state = info.mws[info.count].start(&mut info.req);
-                            match state {
+                            let result = info.mws[info.count].start(&mut ctx, &state);
+                            match result {
                                 Ok(MiddlewareStarted::Done) => info.count += 1,
                                 Ok(MiddlewareStarted::Response(resp)) => {
-                                    return Some(RunMiddlewares::init(info, resp));
+                                    let req = HttpRequest::from_state(ctx, state);
+                                    return Some(RunMiddlewares::init(info, req, resp));
                                 }
                                 Ok(MiddlewareStarted::Future(fut)) => {
                                     self.fut = Some(fut);
                                     continue 'outer;
                                 }
                                 Err(err) => {
-                                    return Some(RunMiddlewares::init(info, err.into()))
+                                    let req = HttpRequest::from_state(ctx, state);
+                                    return Some(RunMiddlewares::init(
+                                        info,
+                                        req,
+                                        err.into(),
+                                    ));
                                 }
                             }
                         }
                     }
                 }
-                Err(err) => return Some(RunMiddlewares::init(info, err.into())),
+                Err(err) => {
+                    let req = HttpRequest::from_state(ctx, state);
+                    return Some(RunMiddlewares::init(info, req, err.into()));
+                }
             }
         }
     }
 }
 
+type HandlerFuture<S> =
+    Future<Item = (HttpRequest<S>, HttpResponse), Error = (HttpRequest<S>, Error)>;
+
 // waiting for response
 struct WaitingResponse<S> {
-    fut: Box<Future<Item = HttpResponse, Error = Error>>,
+    fut: Box<HandlerFuture<S>>,
     _s: PhantomData<S>,
 }
 
 impl<S: 'static> WaitingResponse<S> {
     #[inline]
-    fn init(
-        info: &mut ComposeInfo<S>, reply: AsyncResult<HttpResponse>,
-    ) -> ComposeState<S> {
+    fn init(info: &mut ComposeInfo<S>, reply: RouteResult<S>) -> ComposeState<S> {
         match reply.into() {
-            AsyncResultItem::Ok(resp) => RunMiddlewares::init(info, resp),
-            AsyncResultItem::Err(err) => RunMiddlewares::init(info, err.into()),
+            AsyncResultItem::Ok((req, resp)) => RunMiddlewares::init(info, req, resp),
+            AsyncResultItem::Err((req, err)) => {
+                RunMiddlewares::init(info, req, err.into())
+            }
             AsyncResultItem::Future(fut) => ComposeState::Handler(WaitingResponse {
                 fut,
                 _s: PhantomData,
@@ -613,8 +635,8 @@ impl<S: 'static> WaitingResponse<S> {
     fn poll(&mut self, info: &mut ComposeInfo<S>) -> Option<ComposeState<S>> {
         match self.fut.poll() {
             Ok(Async::NotReady) => None,
-            Ok(Async::Ready(response)) => Some(RunMiddlewares::init(info, response)),
-            Err(err) => Some(RunMiddlewares::init(info, err.into())),
+            Ok(Async::Ready((req, resp))) => Some(RunMiddlewares::init(info, req, resp)),
+            Err((req, err)) => Some(RunMiddlewares::init(info, req, err.into())),
         }
     }
 }
@@ -627,31 +649,36 @@ struct RunMiddlewares<S> {
 }
 
 impl<S: 'static> RunMiddlewares<S> {
-    fn init(info: &mut ComposeInfo<S>, mut resp: HttpResponse) -> ComposeState<S> {
+    fn init(
+        info: &mut ComposeInfo<S>, mut req: HttpRequest<S>, mut resp: HttpResponse,
+    ) -> ComposeState<S> {
         let mut curr = 0;
         let len = info.mws.len();
 
         loop {
-            let state = info.mws[curr].response(&mut info.req, resp);
+            let state = info.mws[curr].response(&mut req, resp);
             resp = match state {
                 Err(err) => {
+                    info.req = Some(req);
                     info.count = curr + 1;
                     return FinishingMiddlewares::init(info, err.into());
                 }
                 Ok(MiddlewareResponse::Done(r)) => {
                     curr += 1;
                     if curr == len {
+                        info.req = Some(req);
                         return FinishingMiddlewares::init(info, r);
                     } else {
                         r
                     }
                 }
                 Ok(MiddlewareResponse::Future(fut)) => {
+                    info.req = Some(req);
                     return ComposeState::RunMiddlewares(RunMiddlewares {
                         curr,
                         fut: Some(fut),
                         _s: PhantomData,
-                    })
+                    });
                 }
             };
         }
@@ -675,7 +702,8 @@ impl<S: 'static> RunMiddlewares<S> {
                 if self.curr == len {
                     return Some(FinishingMiddlewares::init(info, resp));
                 } else {
-                    let state = info.mws[self.curr].response(&mut info.req, resp);
+                    let state =
+                        info.mws[self.curr].response(info.req.as_mut().unwrap(), resp);
                     match state {
                         Err(err) => {
                             return Some(FinishingMiddlewares::init(info, err.into()))
@@ -745,7 +773,7 @@ impl<S: 'static> FinishingMiddlewares<S> {
 
             info.count -= 1;
             let state = info.mws[info.count as usize]
-                .finish(&mut info.req, self.resp.as_ref().unwrap());
+                .finish(info.req.as_mut().unwrap(), self.resp.as_ref().unwrap());
             match state {
                 MiddlewareFinished::Done => {
                     if info.count == 0 {
@@ -794,9 +822,9 @@ mod tests {
             })
             .finish();
 
-        let req = TestRequest::with_uri("/app/path1").finish();
+        let req = TestRequest::with_uri("/app/path1").context().0;
         let resp = app.run(req);
-        assert_eq!(resp.as_msg().status(), StatusCode::OK);
+        assert_eq!(resp.as_msg().1.status(), StatusCode::OK);
     }
 
     #[test]
@@ -809,13 +837,13 @@ mod tests {
             })
             .finish();
 
-        let req = TestRequest::with_uri("/app").finish();
+        let req = TestRequest::with_uri("/app").context().0;
         let resp = app.run(req);
-        assert_eq!(resp.as_msg().status(), StatusCode::OK);
+        assert_eq!(resp.as_msg().1.status(), StatusCode::OK);
 
-        let req = TestRequest::with_uri("/app/").finish();
+        let req = TestRequest::with_uri("/app/").context().0;
         let resp = app.run(req);
-        assert_eq!(resp.as_msg().status(), StatusCode::CREATED);
+        assert_eq!(resp.as_msg().1.status(), StatusCode::CREATED);
     }
 
     #[test]
@@ -826,13 +854,13 @@ mod tests {
             })
             .finish();
 
-        let req = TestRequest::with_uri("/app").finish();
+        let req = TestRequest::with_uri("/app").context().0;
         let resp = app.run(req);
-        assert_eq!(resp.as_msg().status(), StatusCode::NOT_FOUND);
+        assert_eq!(resp.as_msg().1.status(), StatusCode::NOT_FOUND);
 
-        let req = TestRequest::with_uri("/app/").finish();
+        let req = TestRequest::with_uri("/app/").context().0;
         let resp = app.run(req);
-        assert_eq!(resp.as_msg().status(), StatusCode::OK);
+        assert_eq!(resp.as_msg().1.status(), StatusCode::OK);
     }
 
     #[test]
@@ -843,13 +871,13 @@ mod tests {
             })
             .finish();
 
-        let req = TestRequest::with_uri("/app").finish();
+        let req = TestRequest::with_uri("/app").context().0;
         let resp = app.run(req);
-        assert_eq!(resp.as_msg().status(), StatusCode::NOT_FOUND);
+        assert_eq!(resp.as_msg().1.status(), StatusCode::NOT_FOUND);
 
-        let req = TestRequest::with_uri("/app/").finish();
+        let req = TestRequest::with_uri("/app/").context().0;
         let resp = app.run(req);
-        assert_eq!(resp.as_msg().status(), StatusCode::NOT_FOUND);
+        assert_eq!(resp.as_msg().1.status(), StatusCode::NOT_FOUND);
     }
 
     #[test]
@@ -866,21 +894,23 @@ mod tests {
             })
             .finish();
 
-        let req = TestRequest::with_uri("/app/path1").finish();
+        let req = TestRequest::with_uri("/app/path1").context().0;
         let resp = app.run(req);
-        assert_eq!(resp.as_msg().status(), StatusCode::OK);
+        assert_eq!(resp.as_msg().1.status(), StatusCode::OK);
 
         let req = TestRequest::with_uri("/app/path1")
             .method(Method::DELETE)
-            .finish();
+            .context()
+            .0;
         let resp = app.run(req);
-        assert_eq!(resp.as_msg().status(), StatusCode::OK);
+        assert_eq!(resp.as_msg().1.status(), StatusCode::OK);
 
         let req = TestRequest::with_uri("/app/path1")
             .method(Method::POST)
-            .finish();
+            .context()
+            .0;
         let resp = app.run(req);
-        assert_eq!(resp.as_msg().status(), StatusCode::NOT_FOUND);
+        assert_eq!(resp.as_msg().1.status(), StatusCode::NOT_FOUND);
     }
 
     #[test]
@@ -895,15 +925,17 @@ mod tests {
 
         let req = TestRequest::with_uri("/app/path1")
             .method(Method::POST)
-            .finish();
+            .context()
+            .0;
         let resp = app.run(req);
-        assert_eq!(resp.as_msg().status(), StatusCode::NOT_FOUND);
+        assert_eq!(resp.as_msg().1.status(), StatusCode::NOT_FOUND);
 
         let req = TestRequest::with_uri("/app/path1")
             .method(Method::GET)
-            .finish();
+            .context()
+            .0;
         let resp = app.run(req);
-        assert_eq!(resp.as_msg().status(), StatusCode::OK);
+        assert_eq!(resp.as_msg().1.status(), StatusCode::OK);
     }
 
     #[test]
@@ -919,11 +951,11 @@ mod tests {
             })
             .finish();
 
-        let req = TestRequest::with_uri("/ab-project1/path1").finish();
+        let req = TestRequest::with_uri("/ab-project1/path1").context().0;
         let resp = app.run(req);
-        assert_eq!(resp.as_msg().status(), StatusCode::OK);
+        assert_eq!(resp.as_msg().1.status(), StatusCode::OK);
 
-        match resp.as_msg().body() {
+        match resp.as_msg().1.body() {
             &Body::Binary(ref b) => {
                 let bytes: Bytes = b.clone().into();
                 assert_eq!(bytes, Bytes::from_static(b"project: project1"));
@@ -931,9 +963,9 @@ mod tests {
             _ => panic!(),
         }
 
-        let req = TestRequest::with_uri("/aa-project1/path1").finish();
+        let req = TestRequest::with_uri("/aa-project1/path1").context().0;
         let resp = app.run(req);
-        assert_eq!(resp.as_msg().status(), StatusCode::NOT_FOUND);
+        assert_eq!(resp.as_msg().1.status(), StatusCode::NOT_FOUND);
     }
 
     #[test]
@@ -948,9 +980,9 @@ mod tests {
             })
             .finish();
 
-        let req = TestRequest::with_uri("/app/t1/path1").finish();
+        let req = TestRequest::with_uri("/app/t1/path1").context().0;
         let resp = app.run(req);
-        assert_eq!(resp.as_msg().status(), StatusCode::CREATED);
+        assert_eq!(resp.as_msg().1.status(), StatusCode::CREATED);
     }
 
     #[test]
@@ -967,13 +999,13 @@ mod tests {
             })
             .finish();
 
-        let req = TestRequest::with_uri("/app/t1").finish();
+        let req = TestRequest::with_uri("/app/t1").context().0;
         let resp = app.run(req);
-        assert_eq!(resp.as_msg().status(), StatusCode::OK);
+        assert_eq!(resp.as_msg().1.status(), StatusCode::OK);
 
-        let req = TestRequest::with_uri("/app/t1/").finish();
+        let req = TestRequest::with_uri("/app/t1/").context().0;
         let resp = app.run(req);
-        assert_eq!(resp.as_msg().status(), StatusCode::CREATED);
+        assert_eq!(resp.as_msg().1.status(), StatusCode::CREATED);
     }
 
     #[test]
@@ -988,13 +1020,13 @@ mod tests {
             })
             .finish();
 
-        let req = TestRequest::with_uri("/app/t1").finish();
+        let req = TestRequest::with_uri("/app/t1").context().0;
         let resp = app.run(req);
-        assert_eq!(resp.as_msg().status(), StatusCode::NOT_FOUND);
+        assert_eq!(resp.as_msg().1.status(), StatusCode::NOT_FOUND);
 
-        let req = TestRequest::with_uri("/app/t1/").finish();
+        let req = TestRequest::with_uri("/app/t1/").context().0;
         let resp = app.run(req);
-        assert_eq!(resp.as_msg().status(), StatusCode::OK);
+        assert_eq!(resp.as_msg().1.status(), StatusCode::OK);
     }
 
     #[test]
@@ -1009,13 +1041,13 @@ mod tests {
             })
             .finish();
 
-        let req = TestRequest::with_uri("/app/t1").finish();
+        let req = TestRequest::with_uri("/app/t1").context().0;
         let resp = app.run(req);
-        assert_eq!(resp.as_msg().status(), StatusCode::NOT_FOUND);
+        assert_eq!(resp.as_msg().1.status(), StatusCode::NOT_FOUND);
 
-        let req = TestRequest::with_uri("/app/t1/").finish();
+        let req = TestRequest::with_uri("/app/t1/").context().0;
         let resp = app.run(req);
-        assert_eq!(resp.as_msg().status(), StatusCode::NOT_FOUND);
+        assert_eq!(resp.as_msg().1.status(), StatusCode::NOT_FOUND);
     }
 
     #[test]
@@ -1034,15 +1066,17 @@ mod tests {
 
         let req = TestRequest::with_uri("/app/t1/path1")
             .method(Method::POST)
-            .finish();
+            .context()
+            .0;
         let resp = app.run(req);
-        assert_eq!(resp.as_msg().status(), StatusCode::NOT_FOUND);
+        assert_eq!(resp.as_msg().1.status(), StatusCode::NOT_FOUND);
 
         let req = TestRequest::with_uri("/app/t1/path1")
             .method(Method::GET)
-            .finish();
+            .context()
+            .0;
         let resp = app.run(req);
-        assert_eq!(resp.as_msg().status(), StatusCode::OK);
+        assert_eq!(resp.as_msg().1.status(), StatusCode::OK);
     }
 
     #[test]
@@ -1055,9 +1089,9 @@ mod tests {
             })
             .finish();
 
-        let req = TestRequest::with_uri("/app/t1/path1").finish();
+        let req = TestRequest::with_uri("/app/t1/path1").context().0;
         let resp = app.run(req);
-        assert_eq!(resp.as_msg().status(), StatusCode::CREATED);
+        assert_eq!(resp.as_msg().1.status(), StatusCode::CREATED);
     }
 
     #[test]
@@ -1072,13 +1106,13 @@ mod tests {
             })
             .finish();
 
-        let req = TestRequest::with_uri("/app/t1").finish();
+        let req = TestRequest::with_uri("/app/t1").context().0;
         let resp = app.run(req);
-        assert_eq!(resp.as_msg().status(), StatusCode::OK);
+        assert_eq!(resp.as_msg().1.status(), StatusCode::OK);
 
-        let req = TestRequest::with_uri("/app/t1/").finish();
+        let req = TestRequest::with_uri("/app/t1/").context().0;
         let resp = app.run(req);
-        assert_eq!(resp.as_msg().status(), StatusCode::CREATED);
+        assert_eq!(resp.as_msg().1.status(), StatusCode::CREATED);
     }
 
     #[test]
@@ -1095,15 +1129,17 @@ mod tests {
 
         let req = TestRequest::with_uri("/app/t1/path1")
             .method(Method::POST)
-            .finish();
+            .context()
+            .0;
         let resp = app.run(req);
-        assert_eq!(resp.as_msg().status(), StatusCode::NOT_FOUND);
+        assert_eq!(resp.as_msg().1.status(), StatusCode::NOT_FOUND);
 
         let req = TestRequest::with_uri("/app/t1/path1")
             .method(Method::GET)
-            .finish();
+            .context()
+            .0;
         let resp = app.run(req);
-        assert_eq!(resp.as_msg().status(), StatusCode::OK);
+        assert_eq!(resp.as_msg().1.status(), StatusCode::OK);
     }
 
     #[test]
@@ -1123,11 +1159,11 @@ mod tests {
             })
             .finish();
 
-        let req = TestRequest::with_uri("/app/project_1/path1").finish();
+        let req = TestRequest::with_uri("/app/project_1/path1").context().0;
         let resp = app.run(req);
-        assert_eq!(resp.as_msg().status(), StatusCode::CREATED);
+        assert_eq!(resp.as_msg().1.status(), StatusCode::CREATED);
 
-        match resp.as_msg().body() {
+        match resp.as_msg().1.body() {
             &Body::Binary(ref b) => {
                 let bytes: Bytes = b.clone().into();
                 assert_eq!(bytes, Bytes::from_static(b"project: project_1"));
@@ -1156,11 +1192,11 @@ mod tests {
             })
             .finish();
 
-        let req = TestRequest::with_uri("/app/test/1/path1").finish();
+        let req = TestRequest::with_uri("/app/test/1/path1").context().0;
         let resp = app.run(req);
-        assert_eq!(resp.as_msg().status(), StatusCode::CREATED);
+        assert_eq!(resp.as_msg().1.status(), StatusCode::CREATED);
 
-        match resp.as_msg().body() {
+        match resp.as_msg().1.body() {
             &Body::Binary(ref b) => {
                 let bytes: Bytes = b.clone().into();
                 assert_eq!(bytes, Bytes::from_static(b"project: test - 1"));
@@ -1168,9 +1204,9 @@ mod tests {
             _ => panic!(),
         }
 
-        let req = TestRequest::with_uri("/app/test/1/path2").finish();
+        let req = TestRequest::with_uri("/app/test/1/path2").context().0;
         let resp = app.run(req);
-        assert_eq!(resp.as_msg().status(), StatusCode::NOT_FOUND);
+        assert_eq!(resp.as_msg().1.status(), StatusCode::NOT_FOUND);
     }
 
     #[test]
@@ -1183,13 +1219,13 @@ mod tests {
             })
             .finish();
 
-        let req = TestRequest::with_uri("/app/path2").finish();
+        let req = TestRequest::with_uri("/app/path2").context().0;
         let resp = app.run(req);
-        assert_eq!(resp.as_msg().status(), StatusCode::BAD_REQUEST);
+        assert_eq!(resp.as_msg().1.status(), StatusCode::BAD_REQUEST);
 
-        let req = TestRequest::with_uri("/path2").finish();
+        let req = TestRequest::with_uri("/path2").context().0;
         let resp = app.run(req);
-        assert_eq!(resp.as_msg().status(), StatusCode::NOT_FOUND);
+        assert_eq!(resp.as_msg().1.status(), StatusCode::NOT_FOUND);
     }
 
     #[test]
@@ -1202,16 +1238,16 @@ mod tests {
             .default_resource(|r| r.f(|_| HttpResponse::MethodNotAllowed()))
             .finish();
 
-        let req = TestRequest::with_uri("/non-exist").finish();
+        let req = TestRequest::with_uri("/non-exist").context().0;
         let resp = app.run(req);
-        assert_eq!(resp.as_msg().status(), StatusCode::METHOD_NOT_ALLOWED);
+        assert_eq!(resp.as_msg().1.status(), StatusCode::METHOD_NOT_ALLOWED);
 
-        let req = TestRequest::with_uri("/app1/non-exist").finish();
+        let req = TestRequest::with_uri("/app1/non-exist").context().0;
         let resp = app.run(req);
-        assert_eq!(resp.as_msg().status(), StatusCode::BAD_REQUEST);
+        assert_eq!(resp.as_msg().1.status(), StatusCode::BAD_REQUEST);
 
-        let req = TestRequest::with_uri("/app2/non-exist").finish();
+        let req = TestRequest::with_uri("/app2/non-exist").context().0;
         let resp = app.run(req);
-        assert_eq!(resp.as_msg().status(), StatusCode::METHOD_NOT_ALLOWED);
+        assert_eq!(resp.as_msg().1.status(), StatusCode::METHOD_NOT_ALLOWED);
     }
 }

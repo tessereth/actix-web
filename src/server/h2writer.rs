@@ -9,11 +9,11 @@ use std::rc::Rc;
 use std::{cmp, io};
 
 use http::header::{HeaderValue, CONNECTION, CONTENT_LENGTH, DATE, TRANSFER_ENCODING};
-use http::{HttpTryFrom, Version};
+use http::{HttpTryFrom, Method, Version};
 
 use super::helpers;
-use super::message::HttpRequestContext;
-use super::output::Output;
+use super::message::RequestContext;
+use super::output::{Output, ResponseInfo};
 use super::settings::WorkerSettings;
 use super::{Writer, WriterState, MAX_WRITE_BUFFER_SIZE};
 use body::{Binary, Body};
@@ -85,12 +85,13 @@ impl<H: 'static> Writer for H2Writer<H> {
     }
 
     fn start(
-        &mut self, req: &mut HttpRequestContext, msg: &mut HttpResponse,
+        &mut self, req: &RequestContext, msg: &mut HttpResponse,
         encoding: ContentEncoding,
     ) -> io::Result<WriterState> {
         // prepare response
         self.flags.insert(Flags::STARTED);
-        self.buffer.for_server(req, msg, encoding);
+        let mut info = ResponseInfo::new(req.inner.method == Method::HEAD);
+        self.buffer.for_server(&mut info, &req.inner, msg, encoding);
 
         // http2 specific
         msg.headers_mut().remove(CONNECTION);

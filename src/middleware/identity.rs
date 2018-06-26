@@ -46,6 +46,7 @@
 //!     ));
 //! }
 //! ```
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use cookie::{Cookie, CookieJar, Key};
@@ -58,6 +59,8 @@ use http::header::{self, HeaderValue};
 use httprequest::HttpRequest;
 use httpresponse::HttpResponse;
 use middleware::{Middleware, Response, Started};
+use server::RequestContext;
+use state::RequestState;
 
 /// The helper trait to obtain your identity from a request.
 ///
@@ -88,33 +91,33 @@ use middleware::{Middleware, Response, Started};
 pub trait RequestIdentity {
     /// Return the claimed identity of the user associated request or
     /// ``None`` if no identity can be found associated with the request.
-    fn identity(&self) -> Option<&str>;
+    fn identity(&self) -> Option<String>;
 
     /// Remember identity.
-    fn remember(&mut self, identity: String);
+    fn remember(&self, identity: String);
 
     /// This method is used to 'forget' the current identity on subsequent
     /// requests.
-    fn forget(&mut self);
+    fn forget(&self);
 }
 
 impl<S> RequestIdentity for HttpRequest<S> {
-    fn identity(&self) -> Option<&str> {
+    fn identity(&self) -> Option<String> {
         if let Some(id) = self.extensions().get::<IdentityBox>() {
-            return id.0.identity();
+            return id.0.borrow().identity().map(|s| s.to_owned());
         }
         None
     }
 
-    fn remember(&mut self, identity: String) {
-        if let Some(id) = self.extensions_mut().get_mut::<IdentityBox>() {
-            return id.0.remember(identity);
+    fn remember(&self, identity: String) {
+        if let Some(id) = self.extensions().get::<IdentityBox>() {
+            return id.0.borrow_mut().remember(identity);
         }
     }
 
-    fn forget(&mut self) {
-        if let Some(id) = self.extensions_mut().get_mut::<IdentityBox>() {
-            return id.0.forget();
+    fn forget(&self) {
+        if let Some(id) = self.extensions().get::<IdentityBox>() {
+            return id.0.borrow_mut().forget();
         }
     }
 }
@@ -175,12 +178,15 @@ impl<T> IdentityService<T> {
     }
 }
 
-struct IdentityBox(Box<Identity>);
+struct IdentityBox(RefCell<Box<Identity>>);
 
 impl<S: 'static, T: IdentityPolicy<S>> Middleware<S> for IdentityService<T> {
-    fn start(&self, req: &mut HttpRequest<S>) -> Result<Started> {
-        let mut req = req.clone();
+    fn start(
+        &self, req: &mut RequestContext, state: &RequestState<S>,
+    ) -> Result<Started> {
+        unimplemented!()
 
+        /*
         let fut = self
             .backend
             .from_request(&mut req)
@@ -192,13 +198,14 @@ impl<S: 'static, T: IdentityPolicy<S>> Middleware<S> for IdentityService<T> {
                 Err(err) => FutErr(err),
             });
         Ok(Started::Future(Box::new(fut)))
+            */
     }
 
     fn response(
         &self, req: &mut HttpRequest<S>, resp: HttpResponse,
     ) -> Result<Response> {
-        if let Some(mut id) = req.extensions_mut().remove::<IdentityBox>() {
-            id.0.write(resp)
+        if let Some(mut id) = req.extensions().get::<IdentityBox>() {
+            id.0.borrow_mut().write(resp)
         } else {
             Ok(Response::Done(resp))
         }

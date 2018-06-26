@@ -332,27 +332,25 @@ impl<H: HttpHandler + 'static> Entry<H> {
         let (psender, payload) = Payload::new(false);
 
         let mut msg = settings.get_http_message();
-        msg.get_mut().url = Url::new(parts.uri);
-        msg.get_mut().method = parts.method;
-        msg.get_mut().version = parts.version;
-        msg.get_mut().headers = parts.headers;
-        msg.get_mut().payload = Some(payload);
-        msg.get_mut().addr = addr;
-
-        let mut req = HttpRequest::from_message(msg);
+        msg.inner.url = Url::new(parts.uri);
+        msg.inner.method = parts.method;
+        msg.inner.version = parts.version;
+        msg.inner.headers = parts.headers;
+        *msg.inner.payload.borrow_mut() = Some(payload);
+        msg.inner.addr = addr;
 
         // Payload sender
-        let psender = PayloadType::new(req.headers(), psender);
+        let psender = PayloadType::new(msg.headers(), psender);
 
         // start request processing
         let mut task = None;
         for h in settings.handlers().iter_mut() {
-            req = match h.handle(req) {
+            msg = match h.handle(msg) {
                 Ok(t) => {
                     task = Some(t);
                     break;
                 }
-                Err(req) => req,
+                Err(msg) => msg,
             }
         }
 

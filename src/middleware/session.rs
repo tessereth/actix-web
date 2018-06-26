@@ -83,6 +83,8 @@ use handler::FromRequest;
 use httprequest::HttpRequest;
 use httpresponse::HttpResponse;
 use middleware::{Middleware, Response, Started};
+use server::RequestContext;
+use state::RequestState;
 
 /// The helper trait to obtain your session data from a request.
 ///
@@ -246,7 +248,12 @@ impl<S, T: SessionBackend<S>> SessionStorage<T, S> {
 }
 
 impl<S: 'static, T: SessionBackend<S>> Middleware<S> for SessionStorage<T, S> {
-    fn start(&self, req: &mut HttpRequest<S>) -> Result<Started> {
+    fn start(
+        &self, req: &mut RequestContext, state: &RequestState<S>,
+    ) -> Result<Started> {
+        unimplemented!();
+
+        /*
         let mut req = req.clone();
 
         let fut = self.0.from_request(&mut req).then(move |res| match res {
@@ -258,12 +265,13 @@ impl<S: 'static, T: SessionBackend<S>> Middleware<S> for SessionStorage<T, S> {
             Err(err) => FutErr(err),
         });
         Ok(Started::Future(Box::new(fut)))
+         */
     }
 
     fn response(
         &self, req: &mut HttpRequest<S>, resp: HttpResponse,
     ) -> Result<Response> {
-        if let Some(s_box) = req.extensions_mut().remove::<Arc<SessionImplCell>>() {
+        if let Some(s_box) = req.extensions().get::<Arc<SessionImplCell>>() {
             s_box.0.borrow_mut().write(resp)
         } else {
             Ok(Response::Done(resp))

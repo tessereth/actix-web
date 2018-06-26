@@ -21,7 +21,7 @@ pub(crate) mod settings;
 mod srv;
 mod worker;
 
-pub use self::message::HttpRequestContext;
+pub use self::message::RequestContext;
 pub use self::settings::ServerSettings;
 pub use self::srv::HttpServer;
 
@@ -130,13 +130,15 @@ pub trait HttpHandler: 'static {
     type Task: HttpHandlerTask;
 
     /// Handle request
-    fn handle(&self, req: HttpRequest) -> Result<Self::Task, HttpRequest>;
+    fn handle(&self, req: RequestContext) -> Result<Self::Task, RequestContext>;
 }
 
 impl HttpHandler for Box<HttpHandler<Task = Box<HttpHandlerTask>>> {
     type Task = Box<HttpHandlerTask>;
 
-    fn handle(&self, req: HttpRequest) -> Result<Box<HttpHandlerTask>, HttpRequest> {
+    fn handle(
+        &self, req: RequestContext,
+    ) -> Result<Box<HttpHandlerTask>, RequestContext> {
         self.as_ref().handle(req)
     }
 }
@@ -198,7 +200,7 @@ pub trait Writer {
     fn buffer(&mut self) -> &mut BytesMut;
 
     fn start(
-        &mut self, req: &mut HttpRequestContext, resp: &mut HttpResponse,
+        &mut self, req: &RequestContext, resp: &mut HttpResponse,
         encoding: ContentEncoding,
     ) -> io::Result<WriterState>;
 
