@@ -83,7 +83,7 @@ use handler::FromRequest;
 use httprequest::HttpRequest;
 use httpresponse::HttpResponse;
 use middleware::{Middleware, Response, Started};
-use server::RequestContext;
+use server::Request;
 use state::RequestState;
 
 /// The helper trait to obtain your session data from a request.
@@ -249,7 +249,7 @@ impl<S, T: SessionBackend<S>> SessionStorage<T, S> {
 
 impl<S: 'static, T: SessionBackend<S>> Middleware<S> for SessionStorage<T, S> {
     fn start(
-        &self, req: &mut RequestContext, state: &RequestState<S>,
+        &self, req: &mut Request, state: &RequestState<S>,
     ) -> Result<Started> {
         unimplemented!();
 

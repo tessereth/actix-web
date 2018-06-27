@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 use http;
 use http::{header, HttpTryFrom};
 use httpmessage::HttpMessage;
-use server::RequestContext;
+use server::Request;
 
 /// Trait defines resource route predicate.
 /// Predicate can modify request object. It is also possible to
@@ -13,7 +13,7 @@ use server::RequestContext;
 /// Extensions container available via `HttpRequest::extensions()` method.
 pub trait Predicate<S> {
     /// Check if request matches predicate
-    fn check(&self, &mut RequestContext, &S) -> bool;
+    fn check(&self, &mut Request, &S) -> bool;
 }
 
 /// Return predicate that matches if any of supplied predicate matches.
@@ -46,7 +46,7 @@ impl<S> AnyPredicate<S> {
 }
 
 impl<S: 'static> Predicate<S> for AnyPredicate<S> {
-    fn check(&self, req: &mut RequestContext, state: &S) -> bool {
+    fn check(&self, req: &mut Request, state: &S) -> bool {
         for p in &self.0 {
             if p.check(req, state) {
                 return true;
@@ -89,7 +89,7 @@ impl<S> AllPredicate<S> {
 }
 
 impl<S: 'static> Predicate<S> for AllPredicate<S> {
-    fn check(&self, req: &mut RequestContext, state: &S) -> bool {
+    fn check(&self, req: &mut Request, state: &S) -> bool {
         for p in &self.0 {
             if !p.check(req, state) {
                 return false;
@@ -108,7 +108,7 @@ pub fn Not<S: 'static, P: Predicate<S> + 'static>(pred: P) -> NotPredicate<S> {
 pub struct NotPredicate<S>(Box<Predicate<S>>);
 
 impl<S: 'static> Predicate<S> for NotPredicate<S> {
-    fn check(&self, req: &mut RequestContext, state: &S) -> bool {
+    fn check(&self, req: &mut Request, state: &S) -> bool {
         !self.0.check(req, state)
     }
 }
@@ -118,7 +118,7 @@ impl<S: 'static> Predicate<S> for NotPredicate<S> {
 pub struct MethodPredicate<S>(http::Method, PhantomData<S>);
 
 impl<S: 'static> Predicate<S> for MethodPredicate<S> {
-    fn check(&self, req: &mut RequestContext, _: &S) -> bool {
+    fn check(&self, req: &mut Request, _: &S) -> bool {
         *req.method() == self.0
     }
 }
@@ -189,7 +189,7 @@ pub fn Header<S: 'static>(
 pub struct HeaderPredicate<S>(header::HeaderName, header::HeaderValue, PhantomData<S>);
 
 impl<S: 'static> Predicate<S> for HeaderPredicate<S> {
-    fn check(&self, req: &mut RequestContext, _: &S) -> bool {
+    fn check(&self, req: &mut Request, _: &S) -> bool {
         if let Some(val) = req.headers().get(&self.0) {
             return val == self.1;
         }
@@ -226,7 +226,7 @@ impl<S> HostPredicate<S> {
 }
 
 impl<S: 'static> Predicate<S> for HostPredicate<S> {
-    fn check(&self, req: &mut RequestContext, _: &S) -> bool {
+    fn check(&self, req: &mut Request, _: &S) -> bool {
         let info = req.connection_info();
         if let Some(ref scheme) = self.1 {
             self.0 == info.host() && scheme == info.scheme()

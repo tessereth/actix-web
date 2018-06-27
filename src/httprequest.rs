@@ -24,7 +24,7 @@ use info::ConnectionInfo;
 use param::Params;
 use payload::Payload;
 use router::{Resource, Router};
-use server::message::{MessageFlags, RequestContext};
+use server::message::{MessageFlags, Request};
 use state::RequestState;
 use uri::Url as InnerUrl;
 
@@ -34,7 +34,7 @@ struct Info(ConnectionInfo);
 
 /// An HTTP Request
 pub struct HttpRequest<S = ()> {
-    msg: Rc<RequestContext>,
+    msg: Rc<Request>,
     state: RequestState<S>,
 }
 
@@ -59,7 +59,7 @@ impl<S> HttpMessage for HttpRequest<S> {
 impl<S> HttpRequest<S> {
     #[inline]
     pub(crate) fn from_state(
-        msg: RequestContext, state: RequestState<S>,
+        msg: Request, state: RequestState<S>,
     ) -> HttpRequest<S> {
         HttpRequest {
             state,
@@ -67,11 +67,11 @@ impl<S> HttpRequest<S> {
         }
     }
 
-    pub(crate) fn into_parts(self) -> (RequestContext, RequestState<S>) {
+    pub(crate) fn into_parts(self) -> (Request, RequestState<S>) {
         unimplemented!()
     }
 
-    pub(crate) fn copy_context(&self) -> RequestContext {
+    pub(crate) fn copy_context(&self) -> Request {
         unimplemented!()
     }
 
@@ -79,7 +79,7 @@ impl<S> HttpRequest<S> {
         &self.state
     }
 
-    pub(crate) fn as_context(&self) -> &RequestContext {
+    pub(crate) fn as_context(&self) -> &Request {
         self.msg.as_ref()
     }
 

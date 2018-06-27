@@ -12,7 +12,7 @@ use http::header::{HeaderValue, CONNECTION, CONTENT_LENGTH, DATE, TRANSFER_ENCOD
 use http::{HttpTryFrom, Method, Version};
 
 use super::helpers;
-use super::message::RequestContext;
+use super::message::Request;
 use super::output::{Output, ResponseInfo};
 use super::settings::WorkerSettings;
 use super::{Writer, WriterState, MAX_WRITE_BUFFER_SIZE};
@@ -85,7 +85,7 @@ impl<H: 'static> Writer for H2Writer<H> {
     }
 
     fn start(
-        &mut self, req: &RequestContext, msg: &mut HttpResponse,
+        &mut self, req: &Request, msg: &mut HttpResponse,
         encoding: ContentEncoding,
     ) -> io::Result<WriterState> {
         // prepare response

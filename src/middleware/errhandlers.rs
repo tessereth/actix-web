@@ -91,7 +91,7 @@ mod tests {
     use middleware::Started;
     use test;
 
-    use server::RequestContext;
+    use server::Request;
     use state::RequestState;
     use test::TestRequest;
 
@@ -126,7 +126,7 @@ mod tests {
 
     impl<S> Middleware<S> for MiddlewareOne {
         fn start(
-            &self, _: &mut RequestContext, _: &RequestState<S>,
+            &self, _: &mut Request, _: &RequestState<S>,
         ) -> Result<Started, Error> {
             Err(ErrorInternalServerError("middleware error"))
         }

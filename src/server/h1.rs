@@ -471,10 +471,10 @@ mod tests {
     use httpmessage::HttpMessage;
     use server::h1decoder::Message;
     use server::settings::{ServerSettings, WorkerSettings};
-    use server::{KeepAlive, RequestContext};
+    use server::{KeepAlive, Request};
 
     impl Message {
-        fn message(self) -> RequestContext {
+        fn message(self) -> Request {
             match self {
                 Message::Message { msg, payload: _ } => msg,
                 _ => panic!("error"),

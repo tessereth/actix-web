@@ -15,7 +15,7 @@ use header::ContentEncoding;
 use httprequest::HttpRequest;
 use httpresponse::HttpResponse;
 use middleware::{Finished, Middleware, Response, Started};
-use server::{HttpHandlerTask, RequestContext, Writer, WriterState};
+use server::{HttpHandlerTask, Request, Writer, WriterState};
 use state::RequestState;
 
 #[doc(hidden)]
@@ -30,7 +30,7 @@ pub enum HandlerType {
 pub trait PipelineHandler<S> {
     fn encoding(&self) -> ContentEncoding;
 
-    fn handle(&self, RequestContext, RequestState<S>, HandlerType) -> RouteResult<S>;
+    fn handle(&self, Request, RequestState<S>, HandlerType) -> RouteResult<S>;
 }
 
 #[doc(hidden)]
@@ -77,7 +77,7 @@ impl<S: 'static, H: PipelineHandler<S>> PipelineState<S, H> {
 
 struct PipelineInfo<S: 'static> {
     req: Option<HttpRequest<S>>,
-    ctx: Option<(RequestContext, RequestState<S>)>,
+    ctx: Option<(Request, RequestState<S>)>,
     count: u16,
     context: Option<Box<ActorHttpContext>>,
     error: Option<Error>,
@@ -86,7 +86,7 @@ struct PipelineInfo<S: 'static> {
 }
 
 impl<S: 'static> PipelineInfo<S> {
-    fn new(ctx: RequestContext, state: RequestState<S>) -> PipelineInfo<S> {
+    fn new(ctx: Request, state: RequestState<S>) -> PipelineInfo<S> {
         PipelineInfo {
             req: None,
             ctx: Some((ctx, state)),
@@ -113,7 +113,7 @@ impl<S: 'static> PipelineInfo<S> {
 
 impl<S: 'static, H: PipelineHandler<S>> Pipeline<S, H> {
     pub fn new(
-        msg: RequestContext, state: RequestState<S>, mws: Rc<Vec<Box<Middleware<S>>>>,
+        msg: Request, state: RequestState<S>, mws: Rc<Vec<Box<Middleware<S>>>>,
         handler: Rc<H>, htype: HandlerType,
     ) -> Pipeline<S, H> {
         let mut info = PipelineInfo {

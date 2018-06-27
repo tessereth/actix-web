@@ -4,7 +4,7 @@ use bytes::{Bytes, BytesMut};
 use futures::{Async, Poll};
 use httparse;
 
-use super::message::{MessageFlags, RequestContext};
+use super::message::{MessageFlags, Request};
 use super::settings::WorkerSettings;
 use error::ParseError;
 use http::header::{HeaderName, HeaderValue};
@@ -19,7 +19,7 @@ pub(crate) struct H1Decoder {
 }
 
 pub(crate) enum Message {
-    Message { msg: RequestContext, payload: bool },
+    Message { msg: Request, payload: bool },
     Chunk(Bytes),
     Eof,
 }
@@ -80,7 +80,7 @@ impl H1Decoder {
 
     fn parse_message<H>(
         &self, buf: &mut BytesMut, settings: &WorkerSettings<H>,
-    ) -> Poll<(RequestContext, Option<EncodingDecoder>), ParseError> {
+    ) -> Poll<(Request, Option<EncodingDecoder>), ParseError> {
         // Parse http message
         let mut has_upgrade = false;
         let mut chunked = false;

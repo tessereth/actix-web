@@ -54,7 +54,7 @@ use httpmessage::HttpMessage;
 use httprequest::HttpRequest;
 use httpresponse::HttpResponse;
 use middleware::{Middleware, Started};
-use server::RequestContext;
+use server::Request;
 use state::RequestState;
 
 /// Potential cross-site request forgery detected.
@@ -189,7 +189,7 @@ impl CsrfFilter {
         self
     }
 
-    fn validate(&self, req: &mut RequestContext) -> Result<(), CsrfError> {
+    fn validate(&self, req: &mut Request) -> Result<(), CsrfError> {
         let is_upgrade = req.headers().contains_key(header::UPGRADE);
         let is_safe = req.method().is_safe() && (self.allow_upgrade || !is_upgrade);
 
@@ -211,7 +211,7 @@ impl CsrfFilter {
 }
 
 impl<S> Middleware<S> for CsrfFilter {
-    fn start(&self, req: &mut RequestContext, _: &RequestState<S>) -> Result<Started> {
+    fn start(&self, req: &mut Request, _: &RequestState<S>) -> Result<Started> {
         self.validate(req)?;
         Ok(Started::Done)
     }

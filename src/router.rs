@@ -8,7 +8,7 @@ use smallvec::SmallVec;
 use error::UrlGenerationError;
 use param::ParamItem;
 use resource::ResourceHandler;
-use server::RequestContext;
+use server::Request;
 use state::RequestState;
 
 /// Interface for application router.
@@ -67,7 +67,7 @@ impl Router {
 
     /// Query for matched resource
     pub fn recognize<S: 'static>(
-        &self, req: &mut RequestContext, state: &mut RequestState<S>,
+        &self, req: &mut Request, state: &mut RequestState<S>,
     ) -> Option<usize> {
         if self.0.prefix_len > req.path().len() {
             return None;
@@ -244,7 +244,7 @@ impl Resource {
 
     /// Are the given path and parameters a match against this resource?
     pub fn match_with_params(
-        &self, req: &mut RequestContext, plen: usize, insert: bool,
+        &self, req: &mut Request, plen: usize, insert: bool,
     ) -> bool {
         let mut segments: SmallVec<[ParamItem; 5]> = SmallVec::new();
 
@@ -297,7 +297,7 @@ impl Resource {
 
     /// Is the given path a prefix match and do the parameters match against this resource?
     pub fn match_prefix_with_params(
-        &self, req: &mut RequestContext, plen: usize,
+        &self, req: &mut Request, plen: usize,
     ) -> Option<usize> {
         let mut segments: SmallVec<[ParamItem; 5]> = SmallVec::new();
 

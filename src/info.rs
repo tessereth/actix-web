@@ -4,7 +4,7 @@ use std::str::FromStr;
 use http::header::{self, HeaderName};
 use httpmessage::HttpMessage;
 use httprequest::HttpRequest;
-use server::RequestContext;
+use server::Request;
 
 const X_FORWARDED_FOR: &str = "X-FORWARDED-FOR";
 const X_FORWARDED_HOST: &str = "X-FORWARDED-HOST";
@@ -22,7 +22,7 @@ pub struct ConnectionInfo {
 impl ConnectionInfo {
     /// Create *ConnectionInfo* instance for a request.
     #[cfg_attr(feature = "cargo-clippy", allow(cyclomatic_complexity))]
-    pub fn update(&mut self, req: &RequestContext) {
+    pub fn update(&mut self, req: &Request) {
         let mut host = None;
         let mut scheme = None;
         let mut remote = None;

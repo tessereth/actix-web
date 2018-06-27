@@ -15,7 +15,7 @@ use http::header::{
 };
 use http::{HttpTryFrom, Method, Version};
 
-use super::message::{InnerRequestContext, RequestContext};
+use super::message::{InnerRequest, Request};
 use body::{Binary, Body};
 use header::ContentEncoding;
 use httpresponse::HttpResponse;
@@ -146,7 +146,7 @@ impl Output {
     }
 
     pub(crate) fn for_server(
-        &mut self, info: &mut ResponseInfo, req: &InnerRequestContext,
+        &mut self, info: &mut ResponseInfo, req: &InnerRequest,
         resp: &mut HttpResponse, response_encoding: ContentEncoding,
     ) {
         let buf = self.take();

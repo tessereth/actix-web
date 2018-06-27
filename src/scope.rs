@@ -18,7 +18,7 @@ use middleware::{
 use pred::Predicate;
 use resource::{ResourceHandler, RouteId};
 use router::Resource;
-use server::RequestContext;
+use server::Request;
 use state::RequestState;
 
 type ScopeResource<S> = Rc<ResourceHandler<S>>;
@@ -339,7 +339,7 @@ impl<S: 'static> Scope<S> {
 
 impl<S: 'static> RouteHandler<S> for Scope<S> {
     fn handle(
-        &self, mut msg: RequestContext, mut state: RequestState<S>,
+        &self, mut msg: Request, mut state: RequestState<S>,
     ) -> RouteResult<S> {
         let tail = msg.match_info().tail as usize;
 
@@ -416,7 +416,7 @@ struct Wrapper<S: 'static> {
 }
 
 impl<S: 'static, S2: 'static> RouteHandler<S2> for Wrapper<S> {
-    fn handle(&self, msg: RequestContext, state: RequestState<S2>) -> RouteResult<S2> {
+    fn handle(&self, msg: Request, state: RequestState<S2>) -> RouteResult<S2> {
         //let (result, req) = self
         //    .scope
         //    .handle(msg, state.change_state(Rc::clone(&self.state)));
@@ -431,7 +431,7 @@ struct FiltersWrapper<S: 'static> {
 }
 
 impl<S: 'static, S2: 'static> Predicate<S2> for FiltersWrapper<S> {
-    fn check(&self, msg: &mut RequestContext, _: &S2) -> bool {
+    fn check(&self, msg: &mut Request, _: &S2) -> bool {
         for filter in &self.filters {
             if !filter.check(msg, &self.state) {
                 return false;
@@ -450,7 +450,7 @@ struct Compose<S: 'static> {
 struct ComposeInfo<S: 'static> {
     count: usize,
     id: RouteId,
-    ctx: Option<(RequestContext, RequestState<S>)>,
+    ctx: Option<(Request, RequestState<S>)>,
     req: Option<HttpRequest<S>>,
     mws: Rc<Vec<Box<Middleware<S>>>>,
     resource: Rc<ResourceHandler<S>>,
@@ -478,7 +478,7 @@ impl<S: 'static> ComposeState<S> {
 
 impl<S: 'static> Compose<S> {
     fn new(
-        id: RouteId, msg: RequestContext, state: RequestState<S>,
+        id: RouteId, msg: Request, state: RequestState<S>,
         mws: Rc<Vec<Box<Middleware<S>>>>, resource: Rc<ResourceHandler<S>>,
     ) -> Self {
         let mut info = ComposeInfo {

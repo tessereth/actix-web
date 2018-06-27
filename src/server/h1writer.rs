@@ -9,7 +9,7 @@ use tokio_io::AsyncWrite;
 use super::helpers;
 use super::output::{Output, ResponseInfo, ResponseLength};
 use super::settings::WorkerSettings;
-use super::RequestContext;
+use super::Request;
 use super::{Writer, WriterState, MAX_WRITE_BUFFER_SIZE};
 use body::{Binary, Body};
 use header::ContentEncoding;
@@ -113,7 +113,7 @@ impl<T: AsyncWrite, H: 'static> Writer for H1Writer<T, H> {
     }
 
     fn start(
-        &mut self, req: &RequestContext, msg: &mut HttpResponse,
+        &mut self, req: &Request, msg: &mut HttpResponse,
         encoding: ContentEncoding,
     ) -> io::Result<WriterState> {
         // prepare task

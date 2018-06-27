@@ -15,7 +15,7 @@ use resource::ResourceHandler;
 use router::{Resource, Router};
 use scope::Scope;
 use server::{
-    HttpHandler, HttpHandlerTask, IntoHttpHandler, RequestContext, ServerSettings,
+    HttpHandler, HttpHandlerTask, IntoHttpHandler, Request, ServerSettings,
 };
 use state::{RequestState, RouterResource};
 
@@ -51,7 +51,7 @@ impl<S: 'static> PipelineHandler<S> for Inner<S> {
     }
 
     fn handle(
-        &self, mut msg: RequestContext, state: RequestState<S>, htype: HandlerType,
+        &self, mut msg: Request, state: RequestState<S>, htype: HandlerType,
     ) -> RouteResult<S> {
         match htype {
             HandlerType::Normal(idx) => {
@@ -77,7 +77,7 @@ impl<S: 'static> PipelineHandler<S> for Inner<S> {
 impl<S: 'static> HttpApplication<S> {
     #[inline]
     fn get_handler(
-        &self, req: &mut RequestContext, state: &mut RequestState<S>,
+        &self, req: &mut Request, state: &mut RequestState<S>,
     ) -> HandlerType {
         if let Some(idx) = self.router.recognize(req, state) {
             HandlerType::Normal(idx)
@@ -131,7 +131,7 @@ impl<S: 'static> HttpApplication<S> {
     }
 
     #[cfg(test)]
-    pub(crate) fn run(&self, mut ctx: RequestContext) -> RouteResult<S> {
+    pub(crate) fn run(&self, mut ctx: Request) -> RouteResult<S> {
         let mut state =
             RequestState::with_router(Rc::clone(&self.state), self.router.clone());
 
@@ -144,8 +144,8 @@ impl<S: 'static> HttpHandler for HttpApplication<S> {
     type Task = Pipeline<S, Inner<S>>;
 
     fn handle(
-        &self, mut msg: RequestContext,
-    ) -> Result<Pipeline<S, Inner<S>>, RequestContext> {
+        &self, mut msg: Request,
+    ) -> Result<Pipeline<S, Inner<S>>, Request> {
         let m = {
             let path = msg.path();
             path.starts_with(&self.prefix)
@@ -718,7 +718,7 @@ struct BoxedApplication<S> {
 impl<S: 'static> HttpHandler for BoxedApplication<S> {
     type Task = Box<HttpHandlerTask>;
 
-    fn handle(&self, req: RequestContext) -> Result<Self::Task, RequestContext> {
+    fn handle(&self, req: Request) -> Result<Self::Task, Request> {
         self.app.handle(req).map(|t| {
             let task: Self::Task = Box::new(t);
             task

@@ -12,7 +12,7 @@ use time;
 
 use super::channel::Node;
 use super::helpers;
-use super::message::{RequestContext, RequestContextPool};
+use super::message::{Request, RequestPool};
 use super::KeepAlive;
 use body::Body;
 use httpresponse::{HttpResponse, HttpResponseBuilder, HttpResponsePool};
@@ -157,7 +157,7 @@ pub(crate) struct WorkerSettings<H> {
     keep_alive: u64,
     ka_enabled: bool,
     bytes: Rc<SharedBytesPool>,
-    messages: &'static RequestContextPool,
+    messages: &'static RequestPool,
     channels: Cell<usize>,
     node: Box<Node<()>>,
     date: UnsafeCell<Date>,
@@ -177,7 +177,7 @@ impl<H> WorkerSettings<H> {
         WorkerSettings {
             h: RefCell::new(h),
             bytes: Rc::new(SharedBytesPool::new()),
-            messages: RequestContextPool::pool(settings.clone()),
+            messages: RequestPool::pool(settings.clone()),
             channels: Cell::new(0),
             node: Box::new(Node::head()),
             date: UnsafeCell::new(Date::new()),
@@ -215,7 +215,7 @@ impl<H> WorkerSettings<H> {
         self.bytes.release_bytes(bytes)
     }
 
-    pub fn get_request_context(&self) -> RequestContext {
+    pub fn get_request_context(&self) -> Request {
         self.messages.get()
     }
 

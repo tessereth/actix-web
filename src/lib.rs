@@ -201,7 +201,7 @@ pub use httpresponse::HttpResponse;
 pub use json::Json;
 pub use scope::Scope;
 
-pub use server::RequestContext;
+pub use server::Request;
 pub use state::RequestState;
 
 pub mod actix {

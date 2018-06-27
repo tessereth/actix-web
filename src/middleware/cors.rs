@@ -60,7 +60,7 @@ use httprequest::HttpRequest;
 use httpresponse::HttpResponse;
 use middleware::{Middleware, Response, Started};
 use resource::ResourceHandler;
-use server::RequestContext;
+use server::Request;
 use state::RequestState;
 
 /// A set of errors that can occur during processing CORS
@@ -287,7 +287,7 @@ impl Cors {
         resource.middleware(self);
     }
 
-    fn validate_origin(&self, req: &mut RequestContext) -> Result<(), CorsError> {
+    fn validate_origin(&self, req: &mut Request) -> Result<(), CorsError> {
         if let Some(hdr) = req.headers().get(header::ORIGIN) {
             if let Ok(origin) = hdr.to_str() {
                 return match self.inner.origins {
@@ -308,7 +308,7 @@ impl Cors {
     }
 
     fn validate_allowed_method(
-        &self, req: &mut RequestContext,
+        &self, req: &mut Request,
     ) -> Result<(), CorsError> {
         if let Some(hdr) = req.headers().get(header::ACCESS_CONTROL_REQUEST_METHOD) {
             if let Ok(meth) = hdr.to_str() {
@@ -328,7 +328,7 @@ impl Cors {
     }
 
     fn validate_allowed_headers(
-        &self, req: &mut RequestContext,
+        &self, req: &mut Request,
     ) -> Result<(), CorsError> {
         match self.inner.headers {
             AllOrSome::All => Ok(()),
@@ -361,7 +361,7 @@ impl Cors {
 
 impl<S> Middleware<S> for Cors {
     fn start(
-        &self, req: &mut RequestContext, state: &RequestState<S>,
+        &self, req: &mut Request, state: &RequestState<S>,
     ) -> Result<Started> {
         if self.inner.preflight && Method::OPTIONS == *req.method() {
             self.validate_origin(req)?;

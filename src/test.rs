@@ -29,7 +29,7 @@ use param::Params;
 use payload::Payload;
 use resource::ResourceHandler;
 use router::Router;
-use server::{HttpServer, IntoHttpHandler, RequestContext, ServerSettings};
+use server::{HttpServer, IntoHttpHandler, Request, ServerSettings};
 use state::{RequestState, RouterResource};
 use uri::Url as InnerUrl;
 use ws;
@@ -542,7 +542,7 @@ impl<S: 'static> TestRequest<S> {
         let (router, _) = Router::new::<S>("/", Vec::new());
         let state = RequestState::with_router(Rc::new(state), router);
 
-        let mut ctx = RequestContext::new(ServerSettings::default());
+        let mut ctx = Request::new(ServerSettings::default());
         ctx.inner.method = method;
         ctx.inner.url = InnerUrl::new(uri);
         ctx.inner.version = version;
@@ -568,7 +568,7 @@ impl<S: 'static> TestRequest<S> {
         } = self;
 
         let state = RequestState::with_router(Rc::new(state), router);
-        let mut ctx = RequestContext::new(ServerSettings::default());
+        let mut ctx = Request::new(ServerSettings::default());
         ctx.inner.method = method;
         ctx.inner.url = InnerUrl::new(uri);
         ctx.inner.version = version;
@@ -580,7 +580,7 @@ impl<S: 'static> TestRequest<S> {
     }
 
     /// Complete request creation and generate `HttpRequest` instance
-    pub fn context(self) -> (RequestContext, RequestState<S>) {
+    pub fn context(self) -> (Request, RequestState<S>) {
         let TestRequest {
             state,
             method,
@@ -593,7 +593,7 @@ impl<S: 'static> TestRequest<S> {
         } = self;
         let (router, _) = Router::new::<S>("/", Vec::new());
         let state = RequestState::with_router(Rc::new(state), router);
-        let mut ctx = RequestContext::new(ServerSettings::default());
+        let mut ctx = Request::new(ServerSettings::default());
         ctx.inner.method = method;
         ctx.inner.url = InnerUrl::new(uri);
         ctx.inner.version = version;
@@ -608,7 +608,7 @@ impl<S: 'static> TestRequest<S> {
     /// Complete request creation and generate `HttpRequest` instance
     pub(crate) fn context_with_router(
         self, router: Router,
-    ) -> (RequestContext, RequestState<S>) {
+    ) -> (Request, RequestState<S>) {
         let TestRequest {
             state,
             method,
@@ -621,7 +621,7 @@ impl<S: 'static> TestRequest<S> {
         } = self;
 
         let state = RequestState::with_router(Rc::new(state), router);
-        let mut ctx = RequestContext::new(ServerSettings::default());
+        let mut ctx = Request::new(ServerSettings::default());
         ctx.inner.method = method;
         ctx.inner.url = InnerUrl::new(uri);
         ctx.inner.version = version;

@@ -20,11 +20,11 @@ bitflags! {
 }
 
 /// Request's context
-pub struct RequestContext {
-    pub(crate) inner: Box<InnerRequestContext>,
+pub struct Request {
+    pub(crate) inner: Box<InnerRequest>,
 }
 
-pub(crate) struct InnerRequestContext {
+pub(crate) struct InnerRequest {
     pub(crate) version: Version,
     pub(crate) method: Method,
     pub(crate) url: InnerUrl,
@@ -38,7 +38,7 @@ pub(crate) struct InnerRequestContext {
     pub(crate) settings: ServerSettings,
 }
 
-impl HttpMessage for RequestContext {
+impl HttpMessage for Request {
     type Stream = Payload;
 
     fn headers(&self) -> &HeaderMap {
@@ -55,11 +55,11 @@ impl HttpMessage for RequestContext {
     }
 }
 
-impl RequestContext {
+impl Request {
     /// Create new RequestContext instance
-    pub fn new(settings: ServerSettings) -> RequestContext {
-        RequestContext {
-            inner: Box::new(InnerRequestContext {
+    pub fn new(settings: ServerSettings) -> Request {
+        Request {
+            inner: Box::new(InnerRequest {
                 settings,
                 method: Method::GET,
                 url: InnerUrl::default(),
@@ -201,23 +201,20 @@ impl RequestContext {
     }
 }
 
-pub(crate) struct RequestContextPool(
-    RefCell<VecDeque<RequestContext>>,
-    RefCell<ServerSettings>,
-);
+pub(crate) struct RequestPool(RefCell<VecDeque<Request>>, RefCell<ServerSettings>);
 
-thread_local!(static POOL: &'static RequestContextPool = RequestContextPool::create());
+thread_local!(static POOL: &'static RequestPool = RequestPool::create());
 
-impl RequestContextPool {
-    fn create() -> &'static RequestContextPool {
-        let pool = RequestContextPool(
+impl RequestPool {
+    fn create() -> &'static RequestPool {
+        let pool = RequestPool(
             RefCell::new(VecDeque::with_capacity(128)),
             RefCell::new(ServerSettings::default()),
         );
         Box::leak(Box::new(pool))
     }
 
-    pub fn pool(settings: ServerSettings) -> &'static RequestContextPool {
+    pub fn pool(settings: ServerSettings) -> &'static RequestPool {
         POOL.with(|p| {
             *p.1.borrow_mut() = settings;
             *p
@@ -225,16 +222,16 @@ impl RequestContextPool {
     }
 
     #[inline]
-    pub fn get(&self) -> RequestContext {
+    pub fn get(&self) -> Request {
         if let Some(msg) = self.0.borrow_mut().pop_front() {
             msg
         } else {
-            RequestContext::new(self.1.borrow().clone())
+            Request::new(self.1.borrow().clone())
         }
     }
 
     #[inline]
-    pub fn release(&self, mut msg: RequestContext) {
+    pub fn release(&self, mut msg: Request) {
         let v = &mut self.0.borrow_mut();
         if v.len() < 128 {
             msg.reset();
