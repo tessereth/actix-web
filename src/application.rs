@@ -99,7 +99,7 @@ impl<S: 'static> HttpApplication<S> {
                         if m {
                             let prefix_len = (self.inner.prefix + prefix.len()) as u16;
                             let url = req.url().clone();
-                            req.set_prefix_len(prefix_len);
+                            state.set_prefix_len(prefix_len);
                             req.match_info_mut().set_url(url);
                             req.match_info_mut().set_tail(prefix_len);
                             return HandlerType::Handler(idx);
@@ -117,7 +117,7 @@ impl<S: 'static> HttpApplication<S> {
 
                             let prefix_len = (self.inner.prefix + prefix_len) as u16;
                             let url = req.url().clone();
-                            req.set_prefix_len(prefix_len);
+                            state.set_prefix_len(prefix_len);
                             let params = req.match_info_mut();
                             params.set_tail(prefix_len);
                             params.set_url(url);
@@ -968,7 +968,7 @@ mod tests {
         let req = TestRequest::with_uri("/app/test").context().0;
         let resp = app.run(req);
         assert_eq!(resp.as_msg().1.status(), StatusCode::OK);
-        assert_eq!(resp.as_msg().0.as_context().prefix_len(), 9);
+        assert_eq!(resp.as_msg().0.as_state().prefix_len(), 9);
 
         let req = TestRequest::with_uri("/app/test/").context().0;
         let resp = app.run(req);

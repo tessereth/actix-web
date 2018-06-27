@@ -19,6 +19,7 @@ pub struct RequestState<S> {
     pub(crate) info: RefCell<Option<ConnectionInfo>>,
     pub(crate) query: RefCell<Option<ConnectionInfo>>,
     pub(crate) cookies: RefCell<Option<ConnectionInfo>>,
+    pub(crate) prefix: u16,
 }
 
 impl<S> RequestState<S> {
@@ -30,6 +31,7 @@ impl<S> RequestState<S> {
             info: RefCell::new(None),
             query: RefCell::new(None),
             cookies: RefCell::new(None),
+            prefix: 0,
         }
     }
 
@@ -37,9 +39,10 @@ impl<S> RequestState<S> {
     /// Construct new http request with state.
     pub fn change_state<NS>(&self, state: Rc<NS>) -> RequestState<NS> {
         RequestState {
-            state: state,
+            state,
             router: self.router.clone(),
             resource: self.resource,
+            prefix: self.prefix,
             info: RefCell::new(None),
             query: RefCell::new(None),
             cookies: RefCell::new(None),
@@ -64,6 +67,21 @@ impl<S> RequestState<S> {
         }
         None
     }
+
+    #[doc(hidden)]
+    pub fn prefix_len(&self) -> u16 {
+        self.prefix as u16
+    }
+
+    #[doc(hidden)]
+    pub fn set_prefix_len(&mut self, len: u16) {
+        self.prefix = len;
+    }
+
+    pub(crate) fn set_prefix_and_resource(&mut self, len: u16, res: usize) {
+        self.prefix = len;
+        self.resource = RouterResource::Normal(res as u16);
+    }
 }
 
 impl<S> Clone for RequestState<S> {
@@ -72,6 +90,7 @@ impl<S> Clone for RequestState<S> {
             state: self.state.clone(),
             router: self.router.clone(),
             resource: self.resource,
+            prefix: self.prefix,
             info: self.info.clone(),
             query: self.query.clone(),
             cookies: self.cookies.clone(),

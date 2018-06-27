@@ -363,7 +363,7 @@ where
                     .map(|h| h.into_handler(s.clone()))
                     .collect();
                 ctx.add_message_stream(rx);
-                Worker::new(apps, socks, ka)
+                Worker::new(apps, socks, ka, s.clone())
             });
             workers.push((idx, tx));
             self.workers.push((idx, addr));
@@ -561,7 +561,11 @@ impl<H: IntoHttpHandler> HttpServer<H> {
             .into_iter()
             .map(|h| h.into_handler(settings.clone()))
             .collect();
-        self.h = Some(Rc::new(WorkerSettings::new(apps, self.keep_alive)));
+        self.h = Some(Rc::new(WorkerSettings::new(
+            apps,
+            self.keep_alive,
+            settings,
+        )));
 
         // start server
         let signals = self.subscribe_to_signals();
@@ -650,7 +654,7 @@ impl<H: IntoHttpHandler> StreamHandler2<ServerCommand, ()> for HttpServer<H> {
                         .map(|h| h.into_handler(settings.clone()))
                         .collect();
                     ctx.add_message_stream(rx);
-                    Worker::new(apps, socks, ka)
+                    Worker::new(apps, socks, ka, settings)
                 });
                 for item in &self.accept {
                     let _ = item.1.send(Command::Worker(new_idx, tx.clone()));

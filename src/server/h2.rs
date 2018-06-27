@@ -331,7 +331,7 @@ impl<H: HttpHandler + 'static> Entry<H> {
         // Payload and Content-Encoding
         let (psender, payload) = Payload::new(false);
 
-        let mut msg = settings.get_http_message();
+        let mut msg = settings.get_request_context();
         msg.inner.url = Url::new(parts.uri);
         msg.inner.method = parts.method;
         msg.inner.version = parts.version;

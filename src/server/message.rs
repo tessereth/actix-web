@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, Ref, RefCell};
 use std::collections::VecDeque;
 use std::net::SocketAddr;
 
@@ -6,13 +6,16 @@ use http::{header, HeaderMap, Method, Uri, Version};
 
 use extensions::Extensions;
 use httpmessage::HttpMessage;
+use info::ConnectionInfo;
 use param::Params;
 use payload::Payload;
+use server::ServerSettings;
 use uri::Url as InnerUrl;
 
 bitflags! {
     pub(crate) struct MessageFlags: u8 {
-        const KEEPALIVE = 0b0000_0010;
+        const KEEPALIVE = 0b0000_0001;
+        const CONN_INFO = 0b0000_0010;
     }
 }
 
@@ -25,32 +28,14 @@ pub(crate) struct InnerRequestContext {
     pub(crate) version: Version,
     pub(crate) method: Method,
     pub(crate) url: InnerUrl,
-    pub(crate) flags: MessageFlags,
+    pub(crate) flags: Cell<MessageFlags>,
     pub(crate) headers: HeaderMap,
     pub(crate) extensions: Extensions,
     pub(crate) params: Params,
     pub(crate) addr: Option<SocketAddr>,
+    pub(crate) info: RefCell<ConnectionInfo>,
     pub(crate) payload: RefCell<Option<Payload>>,
-    pub(crate) prefix: u16,
-}
-
-impl Default for RequestContext {
-    fn default() -> RequestContext {
-        RequestContext {
-            inner: Box::new(InnerRequestContext {
-                method: Method::GET,
-                url: InnerUrl::default(),
-                version: Version::HTTP_11,
-                headers: HeaderMap::with_capacity(16),
-                flags: MessageFlags::empty(),
-                params: Params::new(),
-                addr: None,
-                payload: RefCell::new(None),
-                extensions: Extensions::new(),
-                prefix: 0,
-            }),
-        }
-    }
+    pub(crate) settings: ServerSettings,
 }
 
 impl HttpMessage for RequestContext {
@@ -71,6 +56,25 @@ impl HttpMessage for RequestContext {
 }
 
 impl RequestContext {
+    /// Create new RequestContext instance
+    pub fn new(settings: ServerSettings) -> RequestContext {
+        RequestContext {
+            inner: Box::new(InnerRequestContext {
+                settings,
+                method: Method::GET,
+                url: InnerUrl::default(),
+                version: Version::HTTP_11,
+                headers: HeaderMap::with_capacity(16),
+                flags: Cell::new(MessageFlags::empty()),
+                params: Params::new(),
+                addr: None,
+                info: RefCell::new(ConnectionInfo::default()),
+                payload: RefCell::new(None),
+                extensions: Extensions::new(),
+            }),
+        }
+    }
+
     #[inline]
     pub(crate) fn url(&self) -> &InnerUrl {
         &self.inner.url
@@ -112,10 +116,21 @@ impl RequestContext {
         &mut self.inner.headers
     }
 
+    /// Peer socket address
+    ///
+    /// Peer address is actual socket address, if proxy is used in front of
+    /// actix http server, then peer address would be address of this proxy.
+    ///
+    /// To get client connection information `connection_info()` method should
+    /// be used.
+    pub fn peer_addr(&self) -> Option<SocketAddr> {
+        self.inner.addr
+    }
+
     /// Checks if a connection should be kept alive.
     #[inline]
     pub fn keep_alive(&self) -> bool {
-        self.inner.flags.contains(MessageFlags::KEEPALIVE)
+        self.inner.flags.get().contains(MessageFlags::KEEPALIVE)
     }
 
     /// Request extensions
@@ -157,14 +172,23 @@ impl RequestContext {
         self.inner.method == Method::CONNECT
     }
 
-    #[doc(hidden)]
-    pub fn prefix_len(&self) -> u16 {
-        self.inner.prefix as u16
+    /// Get *ConnectionInfo* for the correct request.
+    pub fn connection_info(&self) -> Ref<ConnectionInfo> {
+        if self.inner.flags.get().contains(MessageFlags::CONN_INFO) {
+            self.inner.info.borrow()
+        } else {
+            let mut flags = self.inner.flags.get();
+            flags.insert(MessageFlags::CONN_INFO);
+            self.inner.flags.set(flags);
+            self.inner.info.borrow_mut().update(self);
+            self.inner.info.borrow()
+        }
     }
 
-    #[doc(hidden)]
-    pub fn set_prefix_len(&mut self, len: u16) {
-        self.inner.prefix = len;
+    /// Server settings
+    #[inline]
+    pub fn server_settings(&self) -> &ServerSettings {
+        &self.inner.settings
     }
 
     #[inline]
@@ -172,24 +196,32 @@ impl RequestContext {
         self.inner.headers.clear();
         self.inner.extensions.clear();
         self.inner.params.clear();
-        self.inner.flags = MessageFlags::empty();
+        self.inner.flags.set(MessageFlags::empty());
         //*self.inner.payload.borrow_mut() = None;
-        self.inner.prefix = 0;
     }
 }
 
-pub(crate) struct RequestContextPool(RefCell<VecDeque<RequestContext>>);
+pub(crate) struct RequestContextPool(
+    RefCell<VecDeque<RequestContext>>,
+    RefCell<ServerSettings>,
+);
 
 thread_local!(static POOL: &'static RequestContextPool = RequestContextPool::create());
 
 impl RequestContextPool {
     fn create() -> &'static RequestContextPool {
-        let pool = RequestContextPool(RefCell::new(VecDeque::with_capacity(128)));
+        let pool = RequestContextPool(
+            RefCell::new(VecDeque::with_capacity(128)),
+            RefCell::new(ServerSettings::default()),
+        );
         Box::leak(Box::new(pool))
     }
 
-    pub fn pool() -> &'static RequestContextPool {
-        POOL.with(|p| *p)
+    pub fn pool(settings: ServerSettings) -> &'static RequestContextPool {
+        POOL.with(|p| {
+            *p.1.borrow_mut() = settings;
+            *p
+        })
     }
 
     #[inline]
@@ -197,7 +229,7 @@ impl RequestContextPool {
         if let Some(msg) = self.0.borrow_mut().pop_front() {
             msg
         } else {
-            RequestContext::default()
+            RequestContext::new(self.1.borrow().clone())
         }
     }
 

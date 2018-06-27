@@ -85,8 +85,7 @@ impl Router {
             if pattern.match_with_params(req, self.0.prefix_len, true) {
                 let url = req.url().clone();
                 req.match_info_mut().set_url(url);
-                req.set_prefix_len(self.0.prefix_len as u16);
-                state.set_resource(idx);
+                state.set_prefix_and_resource(self.0.prefix_len as u16, idx);
                 return Some(idx);
             }
         }

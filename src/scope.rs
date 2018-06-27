@@ -338,7 +338,9 @@ impl<S: 'static> Scope<S> {
 }
 
 impl<S: 'static> RouteHandler<S> for Scope<S> {
-    fn handle(&self, mut msg: RequestContext, state: RequestState<S>) -> RouteResult<S> {
+    fn handle(
+        &self, mut msg: RequestContext, mut state: RequestState<S>,
+    ) -> RouteResult<S> {
         let tail = msg.match_info().tail as usize;
 
         // recognize resources
@@ -361,7 +363,7 @@ impl<S: 'static> RouteHandler<S> for Scope<S> {
         }
 
         // nested scopes
-        let len = msg.prefix_len() as usize;
+        let len = state.prefix_len() as usize;
         'outer: for &(ref prefix, ref handler, ref filters) in &self.nested {
             if let Some(prefix_len) = prefix.match_prefix_with_params(&mut msg, len) {
                 for filter in filters {
@@ -371,7 +373,7 @@ impl<S: 'static> RouteHandler<S> for Scope<S> {
                 }
                 let url = msg.url().clone();
                 let prefix_len = (len + prefix_len) as u16;
-                msg.set_prefix_len(prefix_len);
+                state.set_prefix_len(prefix_len);
                 msg.match_info_mut().set_tail(prefix_len);
                 msg.match_info_mut().set_url(url);
                 return handler.handle(msg, state);

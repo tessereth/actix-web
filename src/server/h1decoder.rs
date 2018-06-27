@@ -118,11 +118,12 @@ impl H1Decoder {
             let slice = buf.split_to(len).freeze();
 
             // convert headers
-            let mut msg = settings.get_http_message();
+            let mut msg = settings.get_request_context();
             {
                 let inner = &mut msg.inner;
                 inner
                     .flags
+                    .get_mut()
                     .set(MessageFlags::KEEPALIVE, version != Version::HTTP_10);
 
                 for idx in headers[..headers_len].iter() {
@@ -173,7 +174,7 @@ impl H1Decoder {
                                 } else {
                                     false
                                 };
-                                inner.flags.set(MessageFlags::KEEPALIVE, ka);
+                                inner.flags.get_mut().set(MessageFlags::KEEPALIVE, ka);
                             }
                             _ => (),
                         }

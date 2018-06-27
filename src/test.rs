@@ -542,7 +542,7 @@ impl<S: 'static> TestRequest<S> {
         let (router, _) = Router::new::<S>("/", ServerSettings::default(), Vec::new());
         let state = RequestState::with_router(Rc::new(state), router);
 
-        let mut ctx = RequestContext::default();
+        let mut ctx = RequestContext::new(ServerSettings::default());
         ctx.inner.method = method;
         ctx.inner.url = InnerUrl::new(uri);
         ctx.inner.version = version;
@@ -568,7 +568,7 @@ impl<S: 'static> TestRequest<S> {
         } = self;
 
         let state = RequestState::with_router(Rc::new(state), router);
-        let mut ctx = RequestContext::default();
+        let mut ctx = RequestContext::new(ServerSettings::default());
         ctx.inner.method = method;
         ctx.inner.url = InnerUrl::new(uri);
         ctx.inner.version = version;
@@ -593,7 +593,7 @@ impl<S: 'static> TestRequest<S> {
         } = self;
         let (router, _) = Router::new::<S>("/", ServerSettings::default(), Vec::new());
         let state = RequestState::with_router(Rc::new(state), router);
-        let mut ctx = RequestContext::default();
+        let mut ctx = RequestContext::new(ServerSettings::default());
         ctx.inner.method = method;
         ctx.inner.url = InnerUrl::new(uri);
         ctx.inner.version = version;
@@ -621,7 +621,7 @@ impl<S: 'static> TestRequest<S> {
         } = self;
 
         let state = RequestState::with_router(Rc::new(state), router);
-        let mut ctx = RequestContext::default();
+        let mut ctx = RequestContext::new(ServerSettings::default());
         ctx.inner.method = method;
         ctx.inner.url = InnerUrl::new(uri);
         ctx.inner.version = version;

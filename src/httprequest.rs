@@ -1,5 +1,5 @@
 //! HTTP Request message related code.
-use std::cell::RefCell;
+use std::cell::{Ref, RefCell};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::rc::Rc;
@@ -147,14 +147,10 @@ impl<S> HttpRequest<S> {
         &self.msg.inner.url
     }
 
-    /// Get *ConnectionInfo* for correct request.
-    pub fn connection_info(&self) -> ConnectionInfo {
-        if let Some(ref info) = *self.state.info.borrow() {
-            return info.clone();
-        }
-        let info = ConnectionInfo::new(self);
-        *self.state.info.borrow_mut() = Some(info.clone());
-        info
+    /// Get *ConnectionInfo* for the correct request.
+    #[inline]
+    pub fn connection_info(&self) -> Ref<ConnectionInfo> {
+        self.msg.connection_info()
     }
 
     /// Generate url for named resource
