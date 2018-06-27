@@ -1,4 +1,4 @@
-use std::cell::{Cell, Ref, RefCell};
+use std::cell::{Cell, Ref, RefCell, RefMut};
 use std::collections::VecDeque;
 use std::net::SocketAddr;
 
@@ -30,7 +30,7 @@ pub(crate) struct InnerRequestContext {
     pub(crate) url: InnerUrl,
     pub(crate) flags: Cell<MessageFlags>,
     pub(crate) headers: HeaderMap,
-    pub(crate) extensions: Extensions,
+    pub(crate) extensions: RefCell<Extensions>,
     pub(crate) params: Params,
     pub(crate) addr: Option<SocketAddr>,
     pub(crate) info: RefCell<ConnectionInfo>,
@@ -70,7 +70,7 @@ impl RequestContext {
                 addr: None,
                 info: RefCell::new(ConnectionInfo::default()),
                 payload: RefCell::new(None),
-                extensions: Extensions::new(),
+                extensions: RefCell::new(Extensions::new()),
             }),
         }
     }
@@ -135,14 +135,14 @@ impl RequestContext {
 
     /// Request extensions
     #[inline]
-    pub fn extensions(&self) -> &Extensions {
-        &self.inner.extensions
+    pub fn extensions(&self) -> Ref<Extensions> {
+        self.inner.extensions.borrow()
     }
 
     /// Mutable reference to a the request's extensions
     #[inline]
-    pub fn extensions_mut(&mut self) -> &mut Extensions {
-        &mut self.inner.extensions
+    pub fn extensions_mut(&self) -> RefMut<Extensions> {
+        self.inner.extensions.borrow_mut()
     }
 
     /// Get a reference to the Params object.
@@ -194,10 +194,10 @@ impl RequestContext {
     #[inline]
     pub(crate) fn reset(&mut self) {
         self.inner.headers.clear();
-        self.inner.extensions.clear();
+        self.inner.extensions.borrow_mut().clear();
         self.inner.params.clear();
         self.inner.flags.set(MessageFlags::empty());
-        //*self.inner.payload.borrow_mut() = None;
+        *self.inner.payload.borrow_mut() = None;
     }
 }
 

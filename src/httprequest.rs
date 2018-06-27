@@ -1,5 +1,5 @@
 //! HTTP Request message related code.
-use std::cell::{Ref, RefCell};
+use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::rc::Rc;
@@ -91,8 +91,14 @@ impl<S> HttpRequest<S> {
 
     /// Request extensions
     #[inline]
-    pub fn extensions(&self) -> &Extensions {
-        &self.msg.inner.extensions
+    pub fn extensions(&self) -> Ref<Extensions> {
+        self.msg.extensions()
+    }
+
+    /// Mutable reference to a the request's extensions
+    #[inline]
+    pub fn extensions_mut(&self) -> RefMut<Extensions> {
+        self.msg.extensions_mut()
     }
 
     /// Default `CpuPool`
@@ -222,19 +228,16 @@ impl<S> HttpRequest<S> {
     }
 
     /// url query parameters.
-    pub fn query(&self) -> &HashMap<String, String> {
-        unimplemented!()
-        /*
+    pub fn query(&self) -> Ref<HashMap<String, String>> {
         if self.extensions().get::<Query>().is_none() {
             let mut query = HashMap::new();
             for (key, val) in form_urlencoded::parse(self.query_string().as_ref()) {
                 query.insert(key.as_ref().to_string(), val.to_string());
             }
             let mut req = self.clone();
-            req.as_mut().extensions.insert(Query(query));
+            self.extensions_mut().insert(Query(query));
         }
-        &self.extensions().get::<Query>().unwrap().0
-         */
+        Ref::map(self.extensions(), |ext| &ext.get::<Query>().unwrap().0)
     }
 
     /// The query string in the URL.
@@ -250,14 +253,11 @@ impl<S> HttpRequest<S> {
     }
 
     /// Load request cookies.
-    pub fn cookies(&self) -> Result<&Vec<Cookie<'static>>, CookieParseError> {
-        unimplemented!()
-        /*
+    pub fn cookies(&self) -> Result<Ref<Vec<Cookie<'static>>>, CookieParseError> {
         if self.extensions().get::<Query>().is_none() {
             let mut req = self.clone();
-            let msg = req.as_mut();
             let mut cookies = Vec::new();
-            for hdr in msg.headers.get_all(header::COOKIE) {
+            for hdr in self.msg.inner.headers.get_all(header::COOKIE) {
                 let s = str::from_utf8(hdr.as_bytes()).map_err(CookieParseError::from)?;
                 for cookie_str in s.split(';').map(|s| s.trim()) {
                     if !cookie_str.is_empty() {
@@ -265,17 +265,19 @@ impl<S> HttpRequest<S> {
                     }
                 }
             }
-            msg.extensions.insert(Cookies(cookies));
+            self.extensions_mut().insert(Cookies(cookies));
         }
-        Ok(&self.extensions().get::<Cookies>().unwrap().0)*/
+        Ok(Ref::map(self.extensions(), |ext| {
+            &ext.get::<Cookies>().unwrap().0
+        }))
     }
 
     /// Return request cookie.
-    pub fn cookie(&self, name: &str) -> Option<&Cookie> {
+    pub fn cookie(&self, name: &str) -> Option<Cookie<'static>> {
         if let Ok(cookies) = self.cookies() {
-            for cookie in cookies {
+            for cookie in cookies.iter() {
                 if cookie.name() == name {
-                    return Some(cookie);
+                    return Some(cookie.to_owned());
                 }
             }
         }
@@ -283,9 +285,9 @@ impl<S> HttpRequest<S> {
     }
 
     pub(crate) fn set_cookies(&mut self, cookies: Option<Vec<Cookie<'static>>>) {
-        //if let Some(cookies) = cookies {
-        //self.extensions_mut().insert(Cookies(cookies));
-        //}
+        if let Some(cookies) = cookies {
+            self.extensions_mut().insert(Cookies(cookies));
+        }
     }
 
     /// Get a reference to the Params object.
@@ -312,25 +314,6 @@ impl<S> HttpRequest<S> {
             payload.set_read_buffer_capacity(cap)
         }
     }
-
-    /*
-    #[cfg(test)]
-    pub(crate) fn payload(&mut self) -> Ref<Payload> {
-        if self.msg.inner.payload.is_none() {
-            *self.msg.inner.payload.borrow_mut() = Some(Payload::empty());
-        }
-        self.msg.inner.payload.borrow()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn payload_mut(&mut self) -> &mut Payload {
-        let msg = self.as_mut();
-        if msg.payload.is_none() {
-            msg.payload = Some(Payload::empty());
-        }
-        msg.payload.as_mut().unwrap()
-    }
-    */
 }
 
 impl<S> Clone for HttpRequest<S> {

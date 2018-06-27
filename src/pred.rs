@@ -227,14 +227,12 @@ impl<S> HostPredicate<S> {
 
 impl<S: 'static> Predicate<S> for HostPredicate<S> {
     fn check(&self, req: &mut RequestContext, _: &S) -> bool {
-        /*
         let info = req.connection_info();
         if let Some(ref scheme) = self.1 {
             self.0 == info.host() && scheme == info.scheme()
         } else {
             self.0 == info.host()
-    }*/
-        unimplemented!()
+        }
     }
 }
 

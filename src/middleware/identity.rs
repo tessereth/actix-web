@@ -300,7 +300,7 @@ impl CookieIdentityInner {
 
     fn load<S>(&self, req: &mut HttpRequest<S>) -> Option<String> {
         if let Ok(cookies) = req.cookies() {
-            for cookie in cookies {
+            for cookie in cookies.iter() {
                 if cookie.name() == self.name {
                     let mut jar = CookieJar::new();
                     jar.add_original(cookie.clone());
