@@ -615,7 +615,6 @@ mod tests {
     use mime;
     use resource::ResourceHandler;
     use router::{Resource, Router};
-    use server::ServerSettings;
     use test::TestRequest;
 
     #[derive(Deserialize, Debug, PartialEq)]
@@ -715,7 +714,7 @@ mod tests {
         resource.name("index");
         let mut routes = Vec::new();
         routes.push((Resource::new("index", "/{key}/{value}/"), Some(resource)));
-        let (router, _) = Router::new("", ServerSettings::default(), routes);
+        let (router, _) = Router::new("", routes);
         assert!(router.recognize(&mut req.0, &mut req.1).is_some());
 
         let mut req = TestRequest::with_uri("/name/user1/?id=test").finish();
@@ -753,7 +752,7 @@ mod tests {
         resource.name("index");
         let mut routes = Vec::new();
         routes.push((Resource::new("index", "/{value}/"), Some(resource)));
-        let (router, _) = Router::new("", ServerSettings::default(), routes);
+        let (router, _) = Router::new("", routes);
 
         let mut req = TestRequest::with_uri("/32/").context();
         assert!(router.recognize(&mut req.0, &mut req.1).is_some());
@@ -768,7 +767,7 @@ mod tests {
         resource.name("index");
         let mut routes = Vec::new();
         routes.push((Resource::new("index", "/{key}/{value}/"), Some(resource)));
-        let (router, _) = Router::new("", ServerSettings::default(), routes);
+        let (router, _) = Router::new("", routes);
 
         let mut req = TestRequest::with_uri("/name/user1/?id=test").context();
         assert!(router.recognize(&mut req.0, &mut req.1).is_some());

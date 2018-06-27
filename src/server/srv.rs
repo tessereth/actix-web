@@ -358,12 +358,10 @@ where
 
             let addr = Arbiter::start(move |ctx: &mut Context<_>| {
                 let s = ServerSettings::from_parts(parts);
-                let apps: Vec<_> = (*factory)()
-                    .into_iter()
-                    .map(|h| h.into_handler(s.clone()))
-                    .collect();
+                let apps: Vec<_> =
+                    (*factory)().into_iter().map(|h| h.into_handler()).collect();
                 ctx.add_message_stream(rx);
-                Worker::new(apps, socks, ka, s.clone())
+                Worker::new(apps, socks, ka, s)
             });
             workers.push((idx, tx));
             self.workers.push((idx, addr));
@@ -559,7 +557,7 @@ impl<H: IntoHttpHandler> HttpServer<H> {
         let settings = ServerSettings::new(Some(addr), &self.host, secure);
         let apps: Vec<_> = (*self.factory)()
             .into_iter()
-            .map(|h| h.into_handler(settings.clone()))
+            .map(|h| h.into_handler())
             .collect();
         self.h = Some(Rc::new(WorkerSettings::new(
             apps,
@@ -649,10 +647,8 @@ impl<H: IntoHttpHandler> StreamHandler2<ServerCommand, ()> for HttpServer<H> {
 
                 let addr = Arbiter::start(move |ctx: &mut Context<_>| {
                     let settings = ServerSettings::new(Some(addr), &host, false);
-                    let apps: Vec<_> = (*factory)()
-                        .into_iter()
-                        .map(|h| h.into_handler(settings.clone()))
-                        .collect();
+                    let apps: Vec<_> =
+                        (*factory)().into_iter().map(|h| h.into_handler()).collect();
                     ctx.add_message_stream(rx);
                     Worker::new(apps, socks, ka, settings)
                 });

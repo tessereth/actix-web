@@ -99,23 +99,17 @@ impl<S> HttpRequest<S> {
     #[inline]
     #[doc(hidden)]
     pub fn cpu_pool(&self) -> &CpuPool {
-        self.state.router.server_settings().cpu_pool()
+        self.msg.server_settings().cpu_pool()
     }
 
     /// Create http response
     pub fn response(&self, status: StatusCode, body: Body) -> HttpResponse {
-        self.state
-            .router
-            .server_settings()
-            .get_response(status, body)
+        self.msg.server_settings().get_response(status, body)
     }
 
     /// Create http response builder
     pub fn build_response(&self, status: StatusCode) -> HttpResponseBuilder {
-        self.state
-            .router
-            .server_settings()
-            .get_response_builder(status)
+        self.msg.server_settings().get_response_builder(status)
     }
 
     /// Read the Request Uri.
@@ -386,7 +380,6 @@ mod tests {
     use super::*;
     use resource::ResourceHandler;
     use router::Resource;
-    use server::ServerSettings;
     use test::TestRequest;
 
     #[test]
@@ -441,7 +434,7 @@ mod tests {
         resource.name("index");
         let mut routes = Vec::new();
         routes.push((Resource::new("index", "/{key}/"), Some(resource)));
-        let (router, _) = Router::new("", ServerSettings::default(), routes);
+        let (router, _) = Router::new("", routes);
 
         let (mut ctx, mut state) = TestRequest::with_uri("/value/?id=test").context();
         assert!(router.recognize(&mut ctx, &mut state).is_some());
@@ -454,7 +447,7 @@ mod tests {
         resource.name("index");
         let routes =
             vec![(Resource::new("index", "/user/{name}.{ext}"), Some(resource))];
-        let (router, _) = Router::new("/", ServerSettings::default(), routes);
+        let (router, _) = Router::new("/", routes);
         assert!(router.has_route("/user/test.html"));
         assert!(!router.has_route("/test/unknown"));
 
@@ -481,7 +474,7 @@ mod tests {
         let mut resource = ResourceHandler::<()>::default();
         resource.name("index");
         let routes = vec![(Resource::new("index", "/user/{name}.html"), Some(resource))];
-        let (router, _) = Router::new("/prefix/", ServerSettings::default(), routes);
+        let (router, _) = Router::new("/prefix/", routes);
         assert!(router.has_route("/user/test.html"));
         assert!(!router.has_route("/prefix/user/test.html"));
 
@@ -499,7 +492,7 @@ mod tests {
         let mut resource = ResourceHandler::<()>::default();
         resource.name("index");
         let routes = vec![(Resource::new("index", "/index.html"), Some(resource))];
-        let (router, _) = Router::new("/prefix/", ServerSettings::default(), routes);
+        let (router, _) = Router::new("/prefix/", routes);
         assert!(router.has_route("/index.html"));
         assert!(!router.has_route("/prefix/index.html"));
 
@@ -521,7 +514,7 @@ mod tests {
             Resource::external("youtube", "https://youtube.com/watch/{video_id}"),
             None,
         )];
-        let (router, _) = Router::new::<()>("", ServerSettings::default(), routes);
+        let (router, _) = Router::new::<()>("", routes);
         assert!(!router.has_route("https://youtube.com/watch/unknown"));
 
         let req = TestRequest::default().finish_with_router(router);

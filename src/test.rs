@@ -363,8 +363,8 @@ impl<S: 'static> TestApp<S> {
 impl<S: 'static> IntoHttpHandler for TestApp<S> {
     type Handler = HttpApplication<S>;
 
-    fn into_handler(mut self, settings: ServerSettings) -> HttpApplication<S> {
-        self.app.take().unwrap().into_handler(settings)
+    fn into_handler(mut self) -> HttpApplication<S> {
+        self.app.take().unwrap().into_handler()
     }
 }
 
@@ -539,7 +539,7 @@ impl<S: 'static> TestRequest<S> {
             cookies,
             payload,
         } = self;
-        let (router, _) = Router::new::<S>("/", ServerSettings::default(), Vec::new());
+        let (router, _) = Router::new::<S>("/", Vec::new());
         let state = RequestState::with_router(Rc::new(state), router);
 
         let mut ctx = RequestContext::new(ServerSettings::default());
@@ -591,7 +591,7 @@ impl<S: 'static> TestRequest<S> {
             cookies,
             payload,
         } = self;
-        let (router, _) = Router::new::<S>("/", ServerSettings::default(), Vec::new());
+        let (router, _) = Router::new::<S>("/", Vec::new());
         let state = RequestState::with_router(Rc::new(state), router);
         let mut ctx = RequestContext::new(ServerSettings::default());
         ctx.inner.method = method;

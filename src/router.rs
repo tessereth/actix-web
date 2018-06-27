@@ -8,7 +8,7 @@ use smallvec::SmallVec;
 use error::UrlGenerationError;
 use param::ParamItem;
 use resource::ResourceHandler;
-use server::{RequestContext, ServerSettings};
+use server::RequestContext;
 use state::RequestState;
 
 /// Interface for application router.
@@ -19,14 +19,12 @@ struct Inner {
     prefix_len: usize,
     named: HashMap<String, (Resource, bool)>,
     patterns: Vec<Resource>,
-    srv: ServerSettings,
 }
 
 impl Router {
     /// Create new router
     pub fn new<S>(
-        prefix: &str, settings: ServerSettings,
-        map: Vec<(Resource, Option<ResourceHandler<S>>)>,
+        prefix: &str, map: Vec<(Resource, Option<ResourceHandler<S>>)>,
     ) -> (Router, Vec<ResourceHandler<S>>) {
         let prefix = prefix.trim().trim_right_matches('/').to_owned();
         let mut named = HashMap::new();
@@ -52,7 +50,6 @@ impl Router {
                 prefix_len,
                 named,
                 patterns,
-                srv: settings,
             })),
             resources,
         )
@@ -62,12 +59,6 @@ impl Router {
     #[inline]
     pub fn prefix(&self) -> &str {
         &self.0.prefix
-    }
-
-    /// Server settings
-    #[inline]
-    pub fn server_settings(&self) -> &ServerSettings {
-        &self.0.srv
     }
 
     pub(crate) fn get_resource(&self, idx: usize) -> &Resource {
@@ -545,7 +536,7 @@ mod tests {
                 Some(ResourceHandler::default()),
             ),
         ];
-        let (rec, _) = Router::new::<()>("", ServerSettings::default(), routes);
+        let (rec, _) = Router::new::<()>("", routes);
 
         let mut req = TestRequest::with_uri("/name").context();
         assert_eq!(rec.recognize(&mut req.0, &mut req.1), Some(0));
@@ -598,7 +589,7 @@ mod tests {
                 Some(ResourceHandler::default()),
             ),
         ];
-        let (rec, _) = Router::new::<()>("", ServerSettings::default(), routes);
+        let (rec, _) = Router::new::<()>("", routes);
 
         let mut req = TestRequest::with_uri("/index.json").context();
         assert_eq!(rec.recognize(&mut req.0, &mut req.1), Some(0));
@@ -616,7 +607,7 @@ mod tests {
                 Some(ResourceHandler::default()),
             ),
         ];
-        let (rec, _) = Router::new::<()>("/test", ServerSettings::default(), routes);
+        let (rec, _) = Router::new::<()>("/test", routes);
 
         let mut req = TestRequest::with_uri("/name").context();
         assert!(rec.recognize(&mut req.0, &mut req.1).is_none());
@@ -637,7 +628,7 @@ mod tests {
                 Some(ResourceHandler::default()),
             ),
         ];
-        let (rec, _) = Router::new::<()>("/test2", ServerSettings::default(), routes);
+        let (rec, _) = Router::new::<()>("/test2", routes);
 
         let mut req = TestRequest::with_uri("/name").context();
         assert!(rec.recognize(&mut req.0, &mut req.1).is_none());
@@ -753,7 +744,7 @@ mod tests {
                 Some(ResourceHandler::default()),
             ),
         ];
-        let (router, _) = Router::new::<()>("", ServerSettings::default(), routes);
+        let (router, _) = Router::new::<()>("", routes);
 
         let (mut req, mut state) =
             TestRequest::with_uri("/index.json").context_with_router(router.clone());

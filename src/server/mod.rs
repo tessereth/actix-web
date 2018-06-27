@@ -169,13 +169,13 @@ pub trait IntoHttpHandler {
     type Handler: HttpHandler;
 
     /// Convert into `HttpHandler` object.
-    fn into_handler(self, settings: ServerSettings) -> Self::Handler;
+    fn into_handler(self) -> Self::Handler;
 }
 
 impl<T: HttpHandler> IntoHttpHandler for T {
     type Handler = T;
 
-    fn into_handler(self, _: ServerSettings) -> Self::Handler {
+    fn into_handler(self) -> Self::Handler {
         self
     }
 }

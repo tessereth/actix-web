@@ -181,7 +181,6 @@ impl<S: 'static> HttpHandler for HttpApplication<S> {
 struct ApplicationParts<S> {
     state: S,
     prefix: String,
-    settings: ServerSettings,
     default: Rc<ResourceHandler<S>>,
     resources: Vec<(Resource, Option<ResourceHandler<S>>)>,
     handlers: Vec<PrefixHandlerType<S>>,
@@ -232,7 +231,6 @@ where
             parts: Some(ApplicationParts {
                 state,
                 prefix: "/".to_owned(),
-                settings: ServerSettings::default(),
                 default: Rc::new(ResourceHandler::default_not_found()),
                 resources: Vec::new(),
                 handlers: Vec::new(),
@@ -649,8 +647,7 @@ where
             };
         }
 
-        let (router, resources) =
-            Router::new(&prefix, parts.settings.clone(), resources);
+        let (router, resources) = Router::new(&prefix, resources);
 
         let inner = Rc::new(Inner {
             prefix: prefix_len,
@@ -732,11 +729,7 @@ impl<S: 'static> HttpHandler for BoxedApplication<S> {
 impl<S: 'static> IntoHttpHandler for App<S> {
     type Handler = HttpApplication<S>;
 
-    fn into_handler(mut self, settings: ServerSettings) -> HttpApplication<S> {
-        {
-            let parts = self.parts.as_mut().expect("Use after finish");
-            parts.settings = settings;
-        }
+    fn into_handler(mut self) -> HttpApplication<S> {
         self.finish()
     }
 }
@@ -744,11 +737,7 @@ impl<S: 'static> IntoHttpHandler for App<S> {
 impl<'a, S: 'static> IntoHttpHandler for &'a mut App<S> {
     type Handler = HttpApplication<S>;
 
-    fn into_handler(self, settings: ServerSettings) -> HttpApplication<S> {
-        {
-            let parts = self.parts.as_mut().expect("Use after finish");
-            parts.settings = settings;
-        }
+    fn into_handler(self) -> HttpApplication<S> {
         self.finish()
     }
 }

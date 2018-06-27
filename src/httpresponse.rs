@@ -860,7 +860,7 @@ impl<'a> From<&'a ClientResponse> for HttpResponseBuilder {
 
 impl<'a, S> From<&'a HttpRequest<S>> for HttpResponseBuilder {
     fn from(req: &'a HttpRequest<S>) -> HttpResponseBuilder {
-        req.router()
+        req.as_context()
             .server_settings()
             .get_response_builder(StatusCode::OK)
     }
