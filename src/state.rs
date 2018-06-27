@@ -1,4 +1,4 @@
-//! RequestState describes routing process state
+//! RequestContext describes routing process state
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -11,8 +11,8 @@ pub(crate) enum RouterResource {
     Normal(u16),
 }
 
-/// RequestState describes routing process state
-pub struct RequestState<S> {
+/// RequestContext describes routing process state
+pub struct RequestContext<S> {
     pub(crate) state: Rc<S>,
     pub(crate) router: Router,
     pub(crate) resource: RouterResource,
@@ -22,9 +22,9 @@ pub struct RequestState<S> {
     pub(crate) prefix: u16,
 }
 
-impl<S> RequestState<S> {
+impl<S> RequestContext<S> {
     pub(crate) fn with_router(state: Rc<S>, router: Router) -> Self {
-        RequestState {
+        RequestContext {
             state,
             router,
             resource: RouterResource::Notset,
@@ -37,8 +37,8 @@ impl<S> RequestState<S> {
 
     #[inline]
     /// Construct new http request with state.
-    pub fn change_state<NS>(&self, state: Rc<NS>) -> RequestState<NS> {
-        RequestState {
+    pub fn change_state<NS>(&self, state: Rc<NS>) -> RequestContext<NS> {
+        RequestContext {
             state,
             router: self.router.clone(),
             resource: self.resource,
@@ -84,9 +84,9 @@ impl<S> RequestState<S> {
     }
 }
 
-impl<S> Clone for RequestState<S> {
+impl<S> Clone for RequestContext<S> {
     fn clone(&self) -> Self {
-        RequestState {
+        RequestContext {
             state: self.state.clone(),
             router: self.router.clone(),
             resource: self.resource,

@@ -5,7 +5,7 @@ use error::{Error, Result};
 use httprequest::HttpRequest;
 use httpresponse::HttpResponse;
 use server::Request;
-use state::RequestState;
+use state::RequestContext;
 
 mod logger;
 
@@ -54,7 +54,7 @@ pub trait Middleware<S>: 'static {
     /// Method is called when request is ready. It may return
     /// future, which should resolve before next middleware get called.
     fn start(
-        &self, req: &mut Request, state: &RequestState<S>,
+        &self, req: &mut Request, state: &RequestContext<S>,
     ) -> Result<Started> {
         Ok(Started::Done)
     }

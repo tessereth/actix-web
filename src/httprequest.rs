@@ -25,7 +25,7 @@ use param::Params;
 use payload::Payload;
 use router::{Resource, Router};
 use server::message::{MessageFlags, Request};
-use state::RequestState;
+use state::RequestContext;
 use uri::Url as InnerUrl;
 
 struct Query(HashMap<String, String>);
@@ -35,7 +35,7 @@ struct Info(ConnectionInfo);
 /// An HTTP Request
 pub struct HttpRequest<S = ()> {
     msg: Rc<Request>,
-    state: RequestState<S>,
+    state: RequestContext<S>,
 }
 
 impl<S> HttpMessage for HttpRequest<S> {
@@ -59,7 +59,7 @@ impl<S> HttpMessage for HttpRequest<S> {
 impl<S> HttpRequest<S> {
     #[inline]
     pub(crate) fn from_state(
-        msg: Request, state: RequestState<S>,
+        msg: Request, state: RequestContext<S>,
     ) -> HttpRequest<S> {
         HttpRequest {
             state,
@@ -67,7 +67,7 @@ impl<S> HttpRequest<S> {
         }
     }
 
-    pub(crate) fn into_parts(self) -> (Request, RequestState<S>) {
+    pub(crate) fn into_parts(self) -> (Request, RequestContext<S>) {
         unimplemented!()
     }
 
@@ -75,7 +75,7 @@ impl<S> HttpRequest<S> {
         unimplemented!()
     }
 
-    pub(crate) fn as_state(&self) -> &RequestState<S> {
+    pub(crate) fn as_state(&self) -> &RequestContext<S> {
         &self.state
     }
 

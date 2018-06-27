@@ -202,7 +202,7 @@ pub use json::Json;
 pub use scope::Scope;
 
 pub use server::Request;
-pub use state::RequestState;
+pub use state::RequestContext;
 
 pub mod actix {
     //! Re-exports [actix's](https://docs.rs/actix/) prelude

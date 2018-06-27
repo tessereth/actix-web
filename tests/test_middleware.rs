@@ -21,7 +21,7 @@ struct MiddlewareTest {
 
 impl<S> middleware::Middleware<S> for MiddlewareTest {
     fn start(
-        &self, _: &mut Request, _: &RequestState<S>,
+        &self, _: &mut Request, _: &RequestContext<S>,
     ) -> Result<middleware::Started> {
         self.start
             .store(self.start.load(Ordering::Relaxed) + 1, Ordering::Relaxed);
@@ -435,7 +435,7 @@ struct MiddlewareAsyncTest {
 
 impl<S> middleware::Middleware<S> for MiddlewareAsyncTest {
     fn start(
-        &self, _: &mut Request, _: &RequestState<S>,
+        &self, _: &mut Request, _: &RequestContext<S>,
     ) -> Result<middleware::Started> {
         let to = Delay::new(Instant::now() + Duration::from_millis(10));
 
@@ -798,7 +798,7 @@ struct MiddlewareWithErr;
 
 impl<S> middleware::Middleware<S> for MiddlewareWithErr {
     fn start(
-        &self, _: &mut Request, _: &RequestState<S>,
+        &self, _: &mut Request, _: &RequestContext<S>,
     ) -> Result<middleware::Started, Error> {
         Err(ErrorInternalServerError("middleware error"))
     }
@@ -808,7 +808,7 @@ struct MiddlewareAsyncWithErr;
 
 impl<S> middleware::Middleware<S> for MiddlewareAsyncWithErr {
     fn start(
-        &self, _: &mut Request, _: &RequestState<S>,
+        &self, _: &mut Request, _: &RequestContext<S>,
     ) -> Result<middleware::Started, Error> {
         Ok(middleware::Started::Future(Box::new(future::err(
             ErrorInternalServerError("middleware error"),

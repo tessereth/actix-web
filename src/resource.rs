@@ -13,7 +13,7 @@ use middleware::Middleware;
 use pred;
 use route::Route;
 use server::Request;
-use state::RequestState;
+use state::RequestContext;
 
 #[derive(Copy, Clone)]
 pub(crate) struct RouteId(usize);
@@ -286,7 +286,7 @@ impl<S: 'static> ResourceHandler<S> {
 
     #[inline]
     pub(crate) fn get_route_id(
-        &self, msg: &mut Request, state: &RequestState<S>,
+        &self, msg: &mut Request, state: &RequestContext<S>,
     ) -> Option<RouteId> {
         for idx in 0..self.routes.len() {
             if (&self.routes[idx]).check(msg, state) {
@@ -298,7 +298,7 @@ impl<S: 'static> ResourceHandler<S> {
 
     #[inline]
     pub(crate) fn handle(
-        &self, id: RouteId, msg: Request, state: RequestState<S>,
+        &self, id: RouteId, msg: Request, state: RequestContext<S>,
     ) -> RouteResult<S> {
         (&self.routes[id.0]).handle(msg, state)
     }

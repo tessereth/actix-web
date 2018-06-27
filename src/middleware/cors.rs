@@ -61,7 +61,7 @@ use httpresponse::HttpResponse;
 use middleware::{Middleware, Response, Started};
 use resource::ResourceHandler;
 use server::Request;
-use state::RequestState;
+use state::RequestContext;
 
 /// A set of errors that can occur during processing CORS
 #[derive(Debug, Fail)]
@@ -361,7 +361,7 @@ impl Cors {
 
 impl<S> Middleware<S> for Cors {
     fn start(
-        &self, req: &mut Request, state: &RequestState<S>,
+        &self, req: &mut Request, state: &RequestContext<S>,
     ) -> Result<Started> {
         if self.inner.preflight && Method::OPTIONS == *req.method() {
             self.validate_origin(req)?;

@@ -17,7 +17,7 @@ use middleware::{
 };
 use pred::Predicate;
 use server::Request;
-use state::RequestState;
+use state::RequestContext;
 use with::{With, WithAsync};
 
 /// Resource route definition
@@ -41,7 +41,7 @@ impl<S: 'static> Default for Route<S> {
 impl<S: 'static> Route<S> {
     #[inline]
     pub(crate) fn check(
-        &self, req: &mut Request, state: &RequestState<S>,
+        &self, req: &mut Request, state: &RequestContext<S>,
     ) -> bool {
         for pred in &self.preds {
             if !pred.check(req, state.state.as_ref()) {
@@ -53,14 +53,14 @@ impl<S: 'static> Route<S> {
 
     #[inline]
     pub(crate) fn handle(
-        &self, msg: Request, state: RequestState<S>,
+        &self, msg: Request, state: RequestContext<S>,
     ) -> RouteResult<S> {
         self.handler.handle(msg, state)
     }
 
     #[inline]
     pub(crate) fn compose(
-        &self, msg: Request, state: RequestState<S>,
+        &self, msg: Request, state: RequestContext<S>,
         mws: Rc<Vec<Box<Middleware<S>>>>,
     ) -> AsyncResult<HttpResponse> {
         AsyncResult::async(Box::new(Compose::new(
@@ -328,7 +328,7 @@ impl<S: 'static> InnerHandler<S> {
     }
 
     #[inline]
-    pub fn handle(&self, msg: Request, state: RequestState<S>) -> RouteResult<S> {
+    pub fn handle(&self, msg: Request, state: RequestContext<S>) -> RouteResult<S> {
         self.0.handle(msg, state)
     }
 }
@@ -348,7 +348,7 @@ struct Compose<S: 'static> {
 
 struct ComposeInfo<S: 'static> {
     count: usize,
-    ctx: Option<(Request, RequestState<S>)>,
+    ctx: Option<(Request, RequestContext<S>)>,
     req: Option<HttpRequest<S>>,
     mws: Rc<Vec<Box<Middleware<S>>>>,
     handler: InnerHandler<S>,
@@ -376,7 +376,7 @@ impl<S: 'static> ComposeState<S> {
 
 impl<S: 'static> Compose<S> {
     fn new(
-        msg: Request, state: RequestState<S>, mws: Rc<Vec<Box<Middleware<S>>>>,
+        msg: Request, state: RequestContext<S>, mws: Rc<Vec<Box<Middleware<S>>>>,
         handler: InnerHandler<S>,
     ) -> Self {
         let mut info = ComposeInfo {

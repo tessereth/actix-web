@@ -12,7 +12,7 @@ use httprequest::HttpRequest;
 use httpresponse::HttpResponse;
 use middleware::{Finished, Middleware, Started};
 use server::Request;
-use state::RequestState;
+use state::RequestContext;
 
 /// `Middleware` for logging request and response info to the terminal.
 ///
@@ -124,7 +124,7 @@ impl Logger {
 
 impl<S> Middleware<S> for Logger {
     fn start(
-        &self, req: &mut Request, state: &RequestState<S>,
+        &self, req: &mut Request, state: &RequestContext<S>,
     ) -> Result<Started> {
         if !self.exclude.contains(req.path()) {
             req.extensions_mut().insert(StartTime(time::now()));

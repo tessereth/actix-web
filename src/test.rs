@@ -30,7 +30,7 @@ use payload::Payload;
 use resource::ResourceHandler;
 use router::Router;
 use server::{HttpServer, IntoHttpHandler, Request, ServerSettings};
-use state::{RequestState, RouterResource};
+use state::{RequestContext, RouterResource};
 use uri::Url as InnerUrl;
 use ws;
 
@@ -540,7 +540,7 @@ impl<S: 'static> TestRequest<S> {
             payload,
         } = self;
         let (router, _) = Router::new::<S>("/", Vec::new());
-        let state = RequestState::with_router(Rc::new(state), router);
+        let state = RequestContext::with_router(Rc::new(state), router);
 
         let mut ctx = Request::new(ServerSettings::default());
         ctx.inner.method = method;
@@ -567,7 +567,7 @@ impl<S: 'static> TestRequest<S> {
             payload,
         } = self;
 
-        let state = RequestState::with_router(Rc::new(state), router);
+        let state = RequestContext::with_router(Rc::new(state), router);
         let mut ctx = Request::new(ServerSettings::default());
         ctx.inner.method = method;
         ctx.inner.url = InnerUrl::new(uri);
@@ -580,7 +580,7 @@ impl<S: 'static> TestRequest<S> {
     }
 
     /// Complete request creation and generate `HttpRequest` instance
-    pub fn context(self) -> (Request, RequestState<S>) {
+    pub fn context(self) -> (Request, RequestContext<S>) {
         let TestRequest {
             state,
             method,
@@ -592,7 +592,7 @@ impl<S: 'static> TestRequest<S> {
             payload,
         } = self;
         let (router, _) = Router::new::<S>("/", Vec::new());
-        let state = RequestState::with_router(Rc::new(state), router);
+        let state = RequestContext::with_router(Rc::new(state), router);
         let mut ctx = Request::new(ServerSettings::default());
         ctx.inner.method = method;
         ctx.inner.url = InnerUrl::new(uri);
@@ -608,7 +608,7 @@ impl<S: 'static> TestRequest<S> {
     /// Complete request creation and generate `HttpRequest` instance
     pub(crate) fn context_with_router(
         self, router: Router,
-    ) -> (Request, RequestState<S>) {
+    ) -> (Request, RequestContext<S>) {
         let TestRequest {
             state,
             method,
@@ -620,7 +620,7 @@ impl<S: 'static> TestRequest<S> {
             payload,
         } = self;
 
-        let state = RequestState::with_router(Rc::new(state), router);
+        let state = RequestContext::with_router(Rc::new(state), router);
         let mut ctx = Request::new(ServerSettings::default());
         ctx.inner.method = method;
         ctx.inner.url = InnerUrl::new(uri);

@@ -11,7 +11,7 @@ use httprequest::HttpRequest;
 use httpresponse::HttpResponse;
 use resource::ResourceHandler;
 use server::Request;
-use state::RequestState;
+use state::RequestContext;
 
 /// Trait defines object that could be registered as route handler
 #[allow(unused_variables)]
@@ -408,7 +408,7 @@ pub(crate) type RouteResult<S> =
     AsyncResult<(HttpRequest<S>, HttpResponse), (HttpRequest<S>, Error)>;
 
 pub(crate) trait RouteHandler<S>: 'static {
-    fn handle(&self, Request, RequestState<S>) -> RouteResult<S>;
+    fn handle(&self, Request, RequestContext<S>) -> RouteResult<S>;
 
     fn has_default_resource(&self) -> bool {
         false
@@ -447,7 +447,7 @@ where
     R: Responder + 'static,
     S: 'static,
 {
-    fn handle(&self, msg: Request, state: RequestState<S>) -> RouteResult<S> {
+    fn handle(&self, msg: Request, state: RequestContext<S>) -> RouteResult<S> {
         let req = HttpRequest::from_state(msg, state);
         match self.h.handle(&req).respond_to(&req) {
             Ok(reply) => match reply.into().into() {
@@ -502,7 +502,7 @@ where
     E: Into<Error> + 'static,
     S: 'static,
 {
-    fn handle(&self, msg: Request, state: RequestState<S>) -> RouteResult<S> {
+    fn handle(&self, msg: Request, state: RequestContext<S>) -> RouteResult<S> {
         let req = HttpRequest::from_state(msg, state);
         let fut = (self.h)(&req).map_err(|e| e.into()).then(move |r| {
             match r.respond_to(&req) {

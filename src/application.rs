@@ -17,7 +17,7 @@ use scope::Scope;
 use server::{
     HttpHandler, HttpHandlerTask, IntoHttpHandler, Request, ServerSettings,
 };
-use state::{RequestState, RouterResource};
+use state::{RequestContext, RouterResource};
 
 /// Application
 pub struct HttpApplication<S = ()> {
@@ -51,7 +51,7 @@ impl<S: 'static> PipelineHandler<S> for Inner<S> {
     }
 
     fn handle(
-        &self, mut msg: Request, state: RequestState<S>, htype: HandlerType,
+        &self, mut msg: Request, state: RequestContext<S>, htype: HandlerType,
     ) -> RouteResult<S> {
         match htype {
             HandlerType::Normal(idx) => {
@@ -77,7 +77,7 @@ impl<S: 'static> PipelineHandler<S> for Inner<S> {
 impl<S: 'static> HttpApplication<S> {
     #[inline]
     fn get_handler(
-        &self, req: &mut Request, state: &mut RequestState<S>,
+        &self, req: &mut Request, state: &mut RequestContext<S>,
     ) -> HandlerType {
         if let Some(idx) = self.router.recognize(req, state) {
             HandlerType::Normal(idx)
@@ -133,7 +133,7 @@ impl<S: 'static> HttpApplication<S> {
     #[cfg(test)]
     pub(crate) fn run(&self, mut ctx: Request) -> RouteResult<S> {
         let mut state =
-            RequestState::with_router(Rc::clone(&self.state), self.router.clone());
+            RequestContext::with_router(Rc::clone(&self.state), self.router.clone());
 
         let tp = self.get_handler(&mut ctx, &mut state);
         self.inner.handle(ctx, state, tp)
@@ -162,7 +162,7 @@ impl<S: 'static> HttpHandler for HttpApplication<S> {
             }
 
             let mut state =
-                RequestState::with_router(Rc::clone(&self.state), self.router.clone());
+                RequestContext::with_router(Rc::clone(&self.state), self.router.clone());
             let tp = self.get_handler(&mut msg, &mut state);
             let inner = Rc::clone(&self.inner);
             Ok(Pipeline::new(

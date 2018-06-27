@@ -92,7 +92,7 @@ mod tests {
     use test;
 
     use server::Request;
-    use state::RequestState;
+    use state::RequestContext;
     use test::TestRequest;
 
     fn render_500<S>(_: &mut HttpRequest<S>, resp: HttpResponse) -> Result<Response> {
@@ -126,7 +126,7 @@ mod tests {
 
     impl<S> Middleware<S> for MiddlewareOne {
         fn start(
-            &self, _: &mut Request, _: &RequestState<S>,
+            &self, _: &mut Request, _: &RequestContext<S>,
         ) -> Result<Started, Error> {
             Err(ErrorInternalServerError("middleware error"))
         }

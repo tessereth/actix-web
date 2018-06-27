@@ -60,7 +60,7 @@ use httprequest::HttpRequest;
 use httpresponse::HttpResponse;
 use middleware::{Middleware, Response, Started};
 use server::Request;
-use state::RequestState;
+use state::RequestContext;
 
 /// The helper trait to obtain your identity from a request.
 ///
@@ -182,7 +182,7 @@ struct IdentityBox(RefCell<Box<Identity>>);
 
 impl<S: 'static, T: IdentityPolicy<S>> Middleware<S> for IdentityService<T> {
     fn start(
-        &self, req: &mut Request, state: &RequestState<S>,
+        &self, req: &mut Request, state: &RequestContext<S>,
     ) -> Result<Started> {
         unimplemented!()
 

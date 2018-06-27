@@ -55,7 +55,7 @@ use httprequest::HttpRequest;
 use httpresponse::HttpResponse;
 use middleware::{Middleware, Started};
 use server::Request;
-use state::RequestState;
+use state::RequestContext;
 
 /// Potential cross-site request forgery detected.
 #[derive(Debug, Fail)]
@@ -211,7 +211,7 @@ impl CsrfFilter {
 }
 
 impl<S> Middleware<S> for CsrfFilter {
-    fn start(&self, req: &mut Request, _: &RequestState<S>) -> Result<Started> {
+    fn start(&self, req: &mut Request, _: &RequestContext<S>) -> Result<Started> {
         self.validate(req)?;
         Ok(Started::Done)
     }

@@ -9,7 +9,7 @@ use error::UrlGenerationError;
 use param::ParamItem;
 use resource::ResourceHandler;
 use server::Request;
-use state::RequestState;
+use state::RequestContext;
 
 /// Interface for application router.
 pub struct Router(Rc<Inner>);
@@ -67,7 +67,7 @@ impl Router {
 
     /// Query for matched resource
     pub fn recognize<S: 'static>(
-        &self, req: &mut Request, state: &mut RequestState<S>,
+        &self, req: &mut Request, state: &mut RequestContext<S>,
     ) -> Option<usize> {
         if self.0.prefix_len > req.path().len() {
             return None;

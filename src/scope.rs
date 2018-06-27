@@ -19,7 +19,7 @@ use pred::Predicate;
 use resource::{ResourceHandler, RouteId};
 use router::Resource;
 use server::Request;
-use state::RequestState;
+use state::RequestContext;
 
 type ScopeResource<S> = Rc<ResourceHandler<S>>;
 type Route<S> = Box<RouteHandler<S>>;
@@ -339,7 +339,7 @@ impl<S: 'static> Scope<S> {
 
 impl<S: 'static> RouteHandler<S> for Scope<S> {
     fn handle(
-        &self, mut msg: Request, mut state: RequestState<S>,
+        &self, mut msg: Request, mut state: RequestContext<S>,
     ) -> RouteResult<S> {
         let tail = msg.match_info().tail as usize;
 
@@ -416,7 +416,7 @@ struct Wrapper<S: 'static> {
 }
 
 impl<S: 'static, S2: 'static> RouteHandler<S2> for Wrapper<S> {
-    fn handle(&self, msg: Request, state: RequestState<S2>) -> RouteResult<S2> {
+    fn handle(&self, msg: Request, state: RequestContext<S2>) -> RouteResult<S2> {
         //let (result, req) = self
         //    .scope
         //    .handle(msg, state.change_state(Rc::clone(&self.state)));
@@ -450,7 +450,7 @@ struct Compose<S: 'static> {
 struct ComposeInfo<S: 'static> {
     count: usize,
     id: RouteId,
-    ctx: Option<(Request, RequestState<S>)>,
+    ctx: Option<(Request, RequestContext<S>)>,
     req: Option<HttpRequest<S>>,
     mws: Rc<Vec<Box<Middleware<S>>>>,
     resource: Rc<ResourceHandler<S>>,
@@ -478,7 +478,7 @@ impl<S: 'static> ComposeState<S> {
 
 impl<S: 'static> Compose<S> {
     fn new(
-        id: RouteId, msg: Request, state: RequestState<S>,
+        id: RouteId, msg: Request, state: RequestContext<S>,
         mws: Rc<Vec<Box<Middleware<S>>>>, resource: Rc<ResourceHandler<S>>,
     ) -> Self {
         let mut info = ComposeInfo {
