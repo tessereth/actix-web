@@ -540,17 +540,19 @@ impl<S: 'static> TestRequest<S> {
             payload,
         } = self;
         let (router, _) = Router::new::<S>("/", Vec::new());
-        let state = RequestContext::with_router(Rc::new(state), router);
 
-        let mut ctx = Request::new(ServerSettings::default());
-        ctx.inner.method = method;
-        ctx.inner.url = InnerUrl::new(uri);
-        ctx.inner.version = version;
-        ctx.inner.headers = headers;
-        ctx.inner.params = params;
-        *ctx.inner.payload.borrow_mut() = payload;
-        // req.set_cookies(cookies);
-        HttpRequest::from_state(ctx, state)
+        let mut req = Request::new(ServerSettings::default());
+        req.inner.method = method;
+        req.inner.url = InnerUrl::new(uri);
+        req.inner.version = version;
+        req.inner.headers = headers;
+        req.inner.params = params;
+        *req.inner.payload.borrow_mut() = payload;
+
+        let ctx = RequestContext::new(req, Rc::new(state), router);
+        let mut req = HttpRequest::from_state(ctx);
+        req.set_cookies(cookies);
+        req
     }
 
     #[cfg(test)]
@@ -580,7 +582,7 @@ impl<S: 'static> TestRequest<S> {
     }
 
     /// Complete request creation and generate `HttpRequest` instance
-    pub fn context(self) -> (Request, RequestContext<S>) {
+    pub fn context(self) -> RequestContext<S> {
         let TestRequest {
             state,
             method,
@@ -592,16 +594,16 @@ impl<S: 'static> TestRequest<S> {
             payload,
         } = self;
         let (router, _) = Router::new::<S>("/", Vec::new());
-        let state = RequestContext::with_router(Rc::new(state), router);
-        let mut ctx = Request::new(ServerSettings::default());
-        ctx.inner.method = method;
-        ctx.inner.url = InnerUrl::new(uri);
-        ctx.inner.version = version;
-        ctx.inner.headers = headers;
-        ctx.inner.params = params;
-        *ctx.inner.payload.borrow_mut() = payload;
-        // req.set_cookies(cookies);
-        (ctx, state)
+        let mut req = Request::new(ServerSettings::default());
+        req.inner.method = method;
+        req.inner.url = InnerUrl::new(uri);
+        req.inner.version = version;
+        req.inner.headers = headers;
+        req.inner.params = params;
+        *req.inner.payload.borrow_mut() = payload;
+        let ctx = RequestContext::new(req, Rc::new(state), router);
+        // ctx.set_cookies(cookies);
+        ctx
     }
 
     #[cfg(test)]
@@ -620,16 +622,15 @@ impl<S: 'static> TestRequest<S> {
             payload,
         } = self;
 
-        let state = RequestContext::with_router(Rc::new(state), router);
-        let mut ctx = Request::new(ServerSettings::default());
-        ctx.inner.method = method;
-        ctx.inner.url = InnerUrl::new(uri);
-        ctx.inner.version = version;
-        ctx.inner.headers = headers;
-        ctx.inner.params = params;
-        *ctx.inner.payload.borrow_mut() = payload;
+        let mut req = Request::new(ServerSettings::default());
+        req.inner.method = method;
+        req.inner.url = InnerUrl::new(uri);
+        req.inner.version = version;
+        req.inner.headers = headers;
+        req.inner.params = params;
+        *req.inner.payload.borrow_mut() = payload;
         //req.set_cookies(cookies);
-        (ctx, state)
+        RequestContext::new(req, Rc::new(state), router)
     }
 
     /// This method generates `HttpRequest` instance and runs handler

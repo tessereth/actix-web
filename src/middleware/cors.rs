@@ -307,9 +307,7 @@ impl Cors {
         }
     }
 
-    fn validate_allowed_method(
-        &self, req: &mut Request,
-    ) -> Result<(), CorsError> {
+    fn validate_allowed_method(&self, req: &mut Request) -> Result<(), CorsError> {
         if let Some(hdr) = req.headers().get(header::ACCESS_CONTROL_REQUEST_METHOD) {
             if let Ok(meth) = hdr.to_str() {
                 if let Ok(method) = Method::try_from(meth) {
@@ -327,9 +325,7 @@ impl Cors {
         }
     }
 
-    fn validate_allowed_headers(
-        &self, req: &mut Request,
-    ) -> Result<(), CorsError> {
+    fn validate_allowed_headers(&self, req: &mut Request) -> Result<(), CorsError> {
         match self.inner.headers {
             AllOrSome::All => Ok(()),
             AllOrSome::Some(ref allowed_headers) => {
@@ -360,9 +356,7 @@ impl Cors {
 }
 
 impl<S> Middleware<S> for Cors {
-    fn start(
-        &self, req: &mut Request, state: &RequestContext<S>,
-    ) -> Result<Started> {
+    fn start(&self, req: &mut RequestContext<S>) -> Result<Started> {
         if self.inner.preflight && Method::OPTIONS == *req.method() {
             self.validate_origin(req)?;
             self.validate_allowed_method(req)?;

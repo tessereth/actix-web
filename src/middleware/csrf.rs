@@ -211,7 +211,7 @@ impl CsrfFilter {
 }
 
 impl<S> Middleware<S> for CsrfFilter {
-    fn start(&self, req: &mut Request, _: &RequestContext<S>) -> Result<Started> {
+    fn start(&self, req: &mut RequestContext<S>) -> Result<Started> {
         self.validate(req)?;
         Ok(Started::Done)
     }

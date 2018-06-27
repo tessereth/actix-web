@@ -30,7 +30,7 @@ pub enum HandlerType {
 pub trait PipelineHandler<S> {
     fn encoding(&self) -> ContentEncoding;
 
-    fn handle(&self, Request, RequestContext<S>, HandlerType) -> RouteResult<S>;
+    fn handle(&self, RequestContext<S>, HandlerType) -> RouteResult<S>;
 }
 
 #[doc(hidden)]
@@ -77,7 +77,7 @@ impl<S: 'static, H: PipelineHandler<S>> PipelineState<S, H> {
 
 struct PipelineInfo<S: 'static> {
     req: Option<HttpRequest<S>>,
-    ctx: Option<(Request, RequestContext<S>)>,
+    ctx: Option<RequestContext<S>>,
     count: u16,
     context: Option<Box<ActorHttpContext>>,
     error: Option<Error>,
@@ -86,10 +86,10 @@ struct PipelineInfo<S: 'static> {
 }
 
 impl<S: 'static> PipelineInfo<S> {
-    fn new(ctx: Request, state: RequestContext<S>) -> PipelineInfo<S> {
+    fn new(ctx: RequestContext<S>) -> PipelineInfo<S> {
         PipelineInfo {
             req: None,
-            ctx: Some((ctx, state)),
+            ctx: Some(ctx),
             count: 0,
             error: None,
             context: None,
@@ -113,11 +113,11 @@ impl<S: 'static> PipelineInfo<S> {
 
 impl<S: 'static, H: PipelineHandler<S>> Pipeline<S, H> {
     pub fn new(
-        msg: Request, state: RequestContext<S>, mws: Rc<Vec<Box<Middleware<S>>>>,
-        handler: Rc<H>, htype: HandlerType,
+        ctx: RequestContext<S>, mws: Rc<Vec<Box<Middleware<S>>>>, handler: Rc<H>,
+        htype: HandlerType,
     ) -> Pipeline<S, H> {
         let mut info = PipelineInfo {
-            ctx: Some((msg, state)),
+            ctx: Some(ctx),
             req: None,
             count: 0,
             error: None,
@@ -248,17 +248,17 @@ impl<S: 'static, H: PipelineHandler<S>> StartMiddlewares<S, H> {
         // execute middlewares, we need this stage because middlewares could be
         // non-async and we can move to next state immediately
         let len = mws.len() as u16;
-        let (mut ctx, state) = info.ctx.take().unwrap();
+        let mut ctx = info.ctx.take().unwrap();
 
         loop {
             if info.count == len {
-                let reply = hnd.handle(ctx, state, htype);
+                let reply = hnd.handle(ctx, htype);
                 return WaitingResponse::init(info, mws, reply);
             } else {
-                match mws[info.count as usize].start(&mut ctx, &state) {
+                match mws[info.count as usize].start(&mut ctx) {
                     Ok(Started::Done) => info.count += 1,
                     Ok(Started::Response(resp)) => {
-                        let req = HttpRequest::from_state(ctx, state);
+                        let req = HttpRequest::from_state(ctx);
                         return RunMiddlewares::init(info, mws, req, resp);
                     }
                     Ok(Started::Future(fut)) => {
@@ -270,7 +270,7 @@ impl<S: 'static, H: PipelineHandler<S>> StartMiddlewares<S, H> {
                         })
                     }
                     Err(err) => {
-                        let req = HttpRequest::from_state(ctx, state);
+                        let req = HttpRequest::from_state(ctx);
                         return RunMiddlewares::init(info, mws, req, err.into());
                     }
                 }
@@ -282,30 +282,30 @@ impl<S: 'static, H: PipelineHandler<S>> StartMiddlewares<S, H> {
         &mut self, info: &mut PipelineInfo<S>, mws: &[Box<Middleware<S>>],
     ) -> Option<PipelineState<S, H>> {
         let len = mws.len() as u16;
-        let (mut ctx, state) = info.ctx.take().unwrap();
+        let mut ctx = info.ctx.take().unwrap();
 
         'outer: loop {
             match self.fut.as_mut().unwrap().poll() {
                 Ok(Async::NotReady) => {
-                    info.ctx = Some((ctx, state));
+                    info.ctx = Some(ctx);
                     return None;
                 }
                 Ok(Async::Ready(resp)) => {
                     info.count += 1;
                     if let Some(resp) = resp {
-                        let req = HttpRequest::from_state(ctx, state);
+                        let req = HttpRequest::from_state(ctx);
                         return Some(RunMiddlewares::init(info, mws, req, resp));
                     }
                     loop {
                         if info.count == len {
-                            let reply = self.hnd.handle(ctx, state, self.htype);
+                            let reply = self.hnd.handle(ctx, self.htype);
                             return Some(WaitingResponse::init(info, mws, reply));
                         } else {
-                            let res = mws[info.count as usize].start(&mut ctx, &state);
+                            let res = mws[info.count as usize].start(&mut ctx);
                             match res {
                                 Ok(Started::Done) => info.count += 1,
                                 Ok(Started::Response(resp)) => {
-                                    let req = HttpRequest::from_state(ctx, state);
+                                    let req = HttpRequest::from_state(ctx);
                                     return Some(RunMiddlewares::init(
                                         info, mws, req, resp,
                                     ));
@@ -315,7 +315,7 @@ impl<S: 'static, H: PipelineHandler<S>> StartMiddlewares<S, H> {
                                     continue 'outer;
                                 }
                                 Err(err) => {
-                                    let req = HttpRequest::from_state(ctx, state);
+                                    let req = HttpRequest::from_state(ctx);
                                     return Some(RunMiddlewares::init(
                                         info,
                                         mws,
@@ -328,7 +328,7 @@ impl<S: 'static, H: PipelineHandler<S>> StartMiddlewares<S, H> {
                     }
                 }
                 Err(err) => {
-                    let req = HttpRequest::from_state(ctx, state);
+                    let req = HttpRequest::from_state(ctx);
                     return Some(RunMiddlewares::init(info, mws, req, err.into()));
                 }
             }

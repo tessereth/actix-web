@@ -14,9 +14,7 @@ use pred::Predicate;
 use resource::ResourceHandler;
 use router::{Resource, Router};
 use scope::Scope;
-use server::{
-    HttpHandler, HttpHandlerTask, IntoHttpHandler, Request, ServerSettings,
-};
+use server::{HttpHandler, HttpHandlerTask, IntoHttpHandler, Request, ServerSettings};
 use state::{RequestContext, RouterResource};
 
 /// Application
@@ -50,25 +48,23 @@ impl<S: 'static> PipelineHandler<S> for Inner<S> {
         self.encoding
     }
 
-    fn handle(
-        &self, mut msg: Request, state: RequestContext<S>, htype: HandlerType,
-    ) -> RouteResult<S> {
+    fn handle(&self, mut ctx: RequestContext<S>, htype: HandlerType) -> RouteResult<S> {
         match htype {
             HandlerType::Normal(idx) => {
-                if let Some(id) = self.resources[idx].get_route_id(&mut msg, &state) {
-                    return self.resources[idx].handle(id, msg, state);
+                if let Some(id) = self.resources[idx].get_route_id(&mut ctx) {
+                    return self.resources[idx].handle(id, ctx);
                 }
             }
             HandlerType::Handler(idx) => match self.handlers[idx] {
-                PrefixHandlerType::Handler(_, ref hnd) => return hnd.handle(msg, state),
-                PrefixHandlerType::Scope(_, ref hnd, _) => return hnd.handle(msg, state),
+                PrefixHandlerType::Handler(_, ref hnd) => return hnd.handle(ctx),
+                PrefixHandlerType::Scope(_, ref hnd, _) => return hnd.handle(ctx),
             },
             _ => (),
         }
-        if let Some(id) = self.default.get_route_id(&mut msg, &state) {
-            self.default.handle(id, msg, state)
+        if let Some(id) = self.default.get_route_id(&mut ctx) {
+            self.default.handle(id, ctx)
         } else {
-            let req = HttpRequest::from_state(msg, state);
+            let req = HttpRequest::from_state(ctx);
             AsyncResult::ok((req, HttpResponse::new(StatusCode::NOT_FOUND)))
         }
     }
@@ -76,19 +72,17 @@ impl<S: 'static> PipelineHandler<S> for Inner<S> {
 
 impl<S: 'static> HttpApplication<S> {
     #[inline]
-    fn get_handler(
-        &self, req: &mut Request, state: &mut RequestContext<S>,
-    ) -> HandlerType {
-        if let Some(idx) = self.router.recognize(req, state) {
+    fn get_handler(&self, ctx: &mut RequestContext<S>) -> HandlerType {
+        if let Some(idx) = self.router.recognize(ctx) {
             HandlerType::Normal(idx)
         } else {
-            req.match_info_mut().set_tail(0);
+            ctx.match_info_mut().set_tail(0);
 
             'outer: for idx in 0..self.inner.handlers.len() {
                 match self.inner.handlers[idx] {
                     PrefixHandlerType::Handler(ref prefix, _) => {
                         let m = {
-                            let path = &req.path()[self.inner.prefix..];
+                            let path = &ctx.path()[self.inner.prefix..];
                             let path_len = path.len();
 
                             path.starts_with(prefix)
@@ -98,27 +92,27 @@ impl<S: 'static> HttpApplication<S> {
 
                         if m {
                             let prefix_len = (self.inner.prefix + prefix.len()) as u16;
-                            let url = req.url().clone();
-                            state.set_prefix_len(prefix_len);
-                            req.match_info_mut().set_url(url);
-                            req.match_info_mut().set_tail(prefix_len);
+                            let url = ctx.url().clone();
+                            ctx.set_prefix_len(prefix_len);
+                            ctx.match_info_mut().set_url(url);
+                            ctx.match_info_mut().set_tail(prefix_len);
                             return HandlerType::Handler(idx);
                         }
                     }
                     PrefixHandlerType::Scope(ref pattern, _, ref filters) => {
                         if let Some(prefix_len) =
-                            pattern.match_prefix_with_params(req, self.inner.prefix)
+                            pattern.match_prefix_with_params(ctx, self.inner.prefix)
                         {
                             for filter in filters {
-                                if !filter.check(req, &self.state) {
+                                if !filter.check(ctx) {
                                     continue 'outer;
                                 }
                             }
 
                             let prefix_len = (self.inner.prefix + prefix_len) as u16;
-                            let url = req.url().clone();
-                            state.set_prefix_len(prefix_len);
-                            let params = req.match_info_mut();
+                            let url = ctx.url().clone();
+                            ctx.set_prefix_len(prefix_len);
+                            let params = ctx.match_info_mut();
                             params.set_tail(prefix_len);
                             params.set_url(url);
                             return HandlerType::Handler(idx);
@@ -143,9 +137,7 @@ impl<S: 'static> HttpApplication<S> {
 impl<S: 'static> HttpHandler for HttpApplication<S> {
     type Task = Pipeline<S, Inner<S>>;
 
-    fn handle(
-        &self, mut msg: Request,
-    ) -> Result<Pipeline<S, Inner<S>>, Request> {
+    fn handle(&self, mut msg: Request) -> Result<Pipeline<S, Inner<S>>, Request> {
         let m = {
             let path = msg.path();
             path.starts_with(&self.prefix)
@@ -153,25 +145,20 @@ impl<S: 'static> HttpHandler for HttpApplication<S> {
                     || path.split_at(self.prefix_len).1.starts_with('/'))
         };
         if m {
+            let mut ctx =
+                RequestContext::new(msg, Rc::clone(&self.state), self.router.clone());
             if let Some(ref filters) = self.filters {
                 for filter in filters {
-                    if !filter.check(&mut msg, &self.state) {
-                        return Err(msg);
+                    if !filter.check(&mut ctx) {
+                        //return Err(msg);
+                        unimplemented!()
                     }
                 }
             }
 
-            let mut state =
-                RequestContext::with_router(Rc::clone(&self.state), self.router.clone());
-            let tp = self.get_handler(&mut msg, &mut state);
+            let tp = self.get_handler(&mut ctx);
             let inner = Rc::clone(&self.inner);
-            Ok(Pipeline::new(
-                msg,
-                state,
-                Rc::clone(&self.middlewares),
-                inner,
-                tp,
-            ))
+            Ok(Pipeline::new(ctx, Rc::clone(&self.middlewares), inner, tp))
         } else {
             Err(msg)
         }

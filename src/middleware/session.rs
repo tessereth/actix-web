@@ -248,9 +248,7 @@ impl<S, T: SessionBackend<S>> SessionStorage<T, S> {
 }
 
 impl<S: 'static, T: SessionBackend<S>> Middleware<S> for SessionStorage<T, S> {
-    fn start(
-        &self, req: &mut Request, state: &RequestContext<S>,
-    ) -> Result<Started> {
+    fn start(&self, state: &mut RequestContext<S>) -> Result<Started> {
         unimplemented!();
 
         /*

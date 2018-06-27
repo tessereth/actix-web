@@ -53,9 +53,7 @@ pub enum Finished {
 pub trait Middleware<S>: 'static {
     /// Method is called when request is ready. It may return
     /// future, which should resolve before next middleware get called.
-    fn start(
-        &self, req: &mut Request, state: &RequestContext<S>,
-    ) -> Result<Started> {
+    fn start(&self, state: &mut RequestContext<S>) -> Result<Started> {
         Ok(Started::Done)
     }
 

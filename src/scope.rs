@@ -338,22 +338,19 @@ impl<S: 'static> Scope<S> {
 }
 
 impl<S: 'static> RouteHandler<S> for Scope<S> {
-    fn handle(
-        &self, mut msg: Request, mut state: RequestContext<S>,
-    ) -> RouteResult<S> {
-        let tail = msg.match_info().tail as usize;
+    fn handle(&self, mut ctx: RequestContext<S>) -> RouteResult<S> {
+        let tail = ctx.match_info().tail as usize;
 
         // recognize resources
         for &(ref pattern, ref resource) in self.resources.iter() {
-            if pattern.match_with_params(&mut msg, tail, false) {
-                if let Some(id) = resource.get_route_id(&mut msg, &state) {
+            if pattern.match_with_params(&mut ctx, tail, false) {
+                if let Some(id) = resource.get_route_id(&mut ctx) {
                     if self.middlewares.is_empty() {
-                        return resource.handle(id, msg, state);
+                        return resource.handle(id, ctx);
                     } else {
                         return AsyncResult::async(Box::new(Compose::new(
                             id,
-                            msg,
-                            state,
+                            ctx,
                             Rc::clone(&self.middlewares),
                             Rc::clone(&resource),
                         )));
@@ -363,33 +360,32 @@ impl<S: 'static> RouteHandler<S> for Scope<S> {
         }
 
         // nested scopes
-        let len = state.prefix_len() as usize;
+        let len = ctx.prefix_len() as usize;
         'outer: for &(ref prefix, ref handler, ref filters) in &self.nested {
-            if let Some(prefix_len) = prefix.match_prefix_with_params(&mut msg, len) {
+            if let Some(prefix_len) = prefix.match_prefix_with_params(&mut ctx, len) {
                 for filter in filters {
-                    if !filter.check(&mut msg, state.state.as_ref()) {
+                    if !filter.check(&mut ctx) {
                         continue 'outer;
                     }
                 }
-                let url = msg.url().clone();
+                let url = ctx.url().clone();
                 let prefix_len = (len + prefix_len) as u16;
-                state.set_prefix_len(prefix_len);
-                msg.match_info_mut().set_tail(prefix_len);
-                msg.match_info_mut().set_url(url);
-                return handler.handle(msg, state);
+                ctx.set_prefix_len(prefix_len);
+                ctx.match_info_mut().set_tail(prefix_len);
+                ctx.match_info_mut().set_url(url);
+                return handler.handle(ctx);
             }
         }
 
         // default handler
         if let Some(ref resource) = self.default {
-            if let Some(id) = resource.get_route_id(&mut msg, &state) {
+            if let Some(id) = resource.get_route_id(&mut ctx) {
                 if self.middlewares.is_empty() {
-                    return resource.handle(id, msg, state);
+                    return resource.handle(id, ctx);
                 } else {
                     return AsyncResult::async(Box::new(Compose::new(
                         id,
-                        msg,
-                        state,
+                        ctx,
                         Rc::clone(&self.middlewares),
                         Rc::clone(resource),
                     )));
@@ -397,7 +393,7 @@ impl<S: 'static> RouteHandler<S> for Scope<S> {
             }
         }
 
-        let req = HttpRequest::from_state(msg, state);
+        let req = HttpRequest::from_state(ctx);
         AsyncResult::ok((req, HttpResponse::new(StatusCode::NOT_FOUND)))
     }
 
@@ -416,7 +412,7 @@ struct Wrapper<S: 'static> {
 }
 
 impl<S: 'static, S2: 'static> RouteHandler<S2> for Wrapper<S> {
-    fn handle(&self, msg: Request, state: RequestContext<S2>) -> RouteResult<S2> {
+    fn handle(&self, ctx: RequestContext<S2>) -> RouteResult<S2> {
         //let (result, req) = self
         //    .scope
         //    .handle(msg, state.change_state(Rc::clone(&self.state)));
@@ -431,13 +427,14 @@ struct FiltersWrapper<S: 'static> {
 }
 
 impl<S: 'static, S2: 'static> Predicate<S2> for FiltersWrapper<S> {
-    fn check(&self, msg: &mut Request, _: &S2) -> bool {
-        for filter in &self.filters {
-            if !filter.check(msg, &self.state) {
-                return false;
-            }
-        }
-        true
+    fn check(&self, msg: &mut RequestContext<S2>) -> bool {
+        // for filter in &self.filters {
+        // if !filter.check(msg) {
+        //        return false;
+        //    }
+        //}
+        // true
+        unimplemented!()
     }
 }
 
@@ -450,7 +447,7 @@ struct Compose<S: 'static> {
 struct ComposeInfo<S: 'static> {
     count: usize,
     id: RouteId,
-    ctx: Option<(Request, RequestContext<S>)>,
+    ctx: Option<RequestContext<S>>,
     req: Option<HttpRequest<S>>,
     mws: Rc<Vec<Box<Middleware<S>>>>,
     resource: Rc<ResourceHandler<S>>,
@@ -478,8 +475,8 @@ impl<S: 'static> ComposeState<S> {
 
 impl<S: 'static> Compose<S> {
     fn new(
-        id: RouteId, msg: Request, state: RequestContext<S>,
-        mws: Rc<Vec<Box<Middleware<S>>>>, resource: Rc<ResourceHandler<S>>,
+        id: RouteId, ctx: RequestContext<S>, mws: Rc<Vec<Box<Middleware<S>>>>,
+        resource: Rc<ResourceHandler<S>>,
     ) -> Self {
         let mut info = ComposeInfo {
             id,
@@ -487,7 +484,7 @@ impl<S: 'static> Compose<S> {
             resource,
             count: 0,
             req: None,
-            ctx: Some((msg, state)),
+            ctx: Some(ctx),
         };
         let state = StartMiddlewares::init(&mut info);
 
@@ -526,29 +523,29 @@ type Fut = Box<Future<Item = Option<HttpResponse>, Error = Error>>;
 impl<S: 'static> StartMiddlewares<S> {
     fn init(info: &mut ComposeInfo<S>) -> ComposeState<S> {
         let len = info.mws.len();
-        let (mut ctx, state) = info.ctx.take().unwrap();
+        let mut ctx = info.ctx.take().unwrap();
 
         loop {
             if info.count == len {
-                let reply = info.resource.handle(info.id, ctx, state);
+                let reply = info.resource.handle(info.id, ctx);
                 return WaitingResponse::init(info, reply);
             } else {
-                let result = info.mws[info.count].start(&mut ctx, &state);
+                let result = info.mws[info.count].start(&mut ctx);
                 match result {
                     Ok(MiddlewareStarted::Done) => info.count += 1,
                     Ok(MiddlewareStarted::Response(resp)) => {
-                        let req = HttpRequest::from_state(ctx, state);
+                        let req = HttpRequest::from_state(ctx);
                         return RunMiddlewares::init(info, req, resp);
                     }
                     Ok(MiddlewareStarted::Future(fut)) => {
-                        info.ctx = Some((ctx, state));
+                        info.ctx = Some(ctx);
                         return ComposeState::Starting(StartMiddlewares {
                             fut: Some(fut),
                             _s: PhantomData,
                         });
                     }
                     Err(err) => {
-                        let req = HttpRequest::from_state(ctx, state);
+                        let req = HttpRequest::from_state(ctx);
                         return RunMiddlewares::init(info, req, err.into());
                     }
                 }
@@ -558,31 +555,31 @@ impl<S: 'static> StartMiddlewares<S> {
 
     fn poll(&mut self, info: &mut ComposeInfo<S>) -> Option<ComposeState<S>> {
         let len = info.mws.len();
-        let (mut ctx, state) = info.ctx.take().unwrap();
+        let mut ctx = info.ctx.take().unwrap();
 
         'outer: loop {
             match self.fut.as_mut().unwrap().poll() {
                 Ok(Async::NotReady) => {
-                    info.ctx = Some((ctx, state));
+                    info.ctx = Some(ctx);
                     return None;
                 }
                 Ok(Async::Ready(resp)) => {
                     info.count += 1;
 
                     if let Some(resp) = resp {
-                        let req = HttpRequest::from_state(ctx, state);
+                        let req = HttpRequest::from_state(ctx);
                         return Some(RunMiddlewares::init(info, req, resp));
                     }
                     loop {
                         if info.count == len {
-                            let reply = { info.resource.handle(info.id, ctx, state) };
+                            let reply = { info.resource.handle(info.id, ctx) };
                             return Some(WaitingResponse::init(info, reply));
                         } else {
-                            let result = info.mws[info.count].start(&mut ctx, &state);
+                            let result = info.mws[info.count].start(&mut ctx);
                             match result {
                                 Ok(MiddlewareStarted::Done) => info.count += 1,
                                 Ok(MiddlewareStarted::Response(resp)) => {
-                                    let req = HttpRequest::from_state(ctx, state);
+                                    let req = HttpRequest::from_state(ctx);
                                     return Some(RunMiddlewares::init(info, req, resp));
                                 }
                                 Ok(MiddlewareStarted::Future(fut)) => {
@@ -590,7 +587,7 @@ impl<S: 'static> StartMiddlewares<S> {
                                     continue 'outer;
                                 }
                                 Err(err) => {
-                                    let req = HttpRequest::from_state(ctx, state);
+                                    let req = HttpRequest::from_state(ctx);
                                     return Some(RunMiddlewares::init(
                                         info,
                                         req,
@@ -602,7 +599,7 @@ impl<S: 'static> StartMiddlewares<S> {
                     }
                 }
                 Err(err) => {
-                    let req = HttpRequest::from_state(ctx, state);
+                    let req = HttpRequest::from_state(ctx);
                     return Some(RunMiddlewares::init(info, req, err.into()));
                 }
             }

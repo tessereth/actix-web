@@ -181,9 +181,7 @@ impl<T> IdentityService<T> {
 struct IdentityBox(RefCell<Box<Identity>>);
 
 impl<S: 'static, T: IdentityPolicy<S>> Middleware<S> for IdentityService<T> {
-    fn start(
-        &self, req: &mut Request, state: &RequestContext<S>,
-    ) -> Result<Started> {
+    fn start(&self, state: &mut RequestContext<S>) -> Result<Started> {
         unimplemented!()
 
         /*

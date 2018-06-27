@@ -66,17 +66,15 @@ impl Router {
     }
 
     /// Query for matched resource
-    pub fn recognize<S: 'static>(
-        &self, req: &mut Request, state: &mut RequestContext<S>,
-    ) -> Option<usize> {
-        if self.0.prefix_len > req.path().len() {
+    pub fn recognize<S: 'static>(&self, ctx: &mut RequestContext<S>) -> Option<usize> {
+        if self.0.prefix_len > ctx.path().len() {
             return None;
         }
         for (idx, pattern) in self.0.patterns.iter().enumerate() {
-            if pattern.match_with_params(req, self.0.prefix_len, true) {
-                let url = req.url().clone();
-                req.match_info_mut().set_url(url);
-                state.set_prefix_and_resource(self.0.prefix_len as u16, idx);
+            if pattern.match_with_params(ctx, self.0.prefix_len, true) {
+                let url = ctx.url().clone();
+                ctx.match_info_mut().set_url(url);
+                ctx.set_prefix_and_resource(self.0.prefix_len as u16, idx);
                 return Some(idx);
             }
         }
@@ -243,8 +241,8 @@ impl Resource {
     }
 
     /// Are the given path and parameters a match against this resource?
-    pub fn match_with_params(
-        &self, req: &mut Request, plen: usize, insert: bool,
+    pub fn match_with_params<S>(
+        &self, req: &mut RequestContext<S>, plen: usize, insert: bool,
     ) -> bool {
         let mut segments: SmallVec<[ParamItem; 5]> = SmallVec::new();
 

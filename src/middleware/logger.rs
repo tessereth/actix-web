@@ -123,9 +123,7 @@ impl Logger {
 }
 
 impl<S> Middleware<S> for Logger {
-    fn start(
-        &self, req: &mut Request, state: &RequestContext<S>,
-    ) -> Result<Started> {
+    fn start(&self, req: &mut RequestContext<S>) -> Result<Started> {
         if !self.exclude.contains(req.path()) {
             req.extensions_mut().insert(StartTime(time::now()));
         }

@@ -33,22 +33,19 @@ struct Cookies(Vec<Cookie<'static>>);
 struct Info(ConnectionInfo);
 
 /// An HTTP Request
-pub struct HttpRequest<S = ()> {
-    msg: Rc<Request>,
-    state: RequestContext<S>,
-}
+pub struct HttpRequest<S = ()>(Rc<RequestContext<S>>);
 
 impl<S> HttpMessage for HttpRequest<S> {
     type Stream = Payload;
 
     #[inline]
     fn headers(&self) -> &HeaderMap {
-        &self.msg.inner.headers
+        self.0.request().headers()
     }
 
     #[inline]
     fn payload(&self) -> Payload {
-        if let Some(payload) = self.msg.inner.payload.borrow_mut().take() {
+        if let Some(payload) = self.0.request().inner.payload.borrow_mut().take() {
             payload
         } else {
             Payload::empty()
@@ -58,13 +55,8 @@ impl<S> HttpMessage for HttpRequest<S> {
 
 impl<S> HttpRequest<S> {
     #[inline]
-    pub(crate) fn from_state(
-        msg: Request, state: RequestContext<S>,
-    ) -> HttpRequest<S> {
-        HttpRequest {
-            state,
-            msg: Rc::new(msg),
-        }
+    pub(crate) fn from_state(state: RequestContext<S>) -> HttpRequest<S> {
+        HttpRequest(Rc::new(state))
     }
 
     pub(crate) fn into_parts(self) -> (Request, RequestContext<S>) {
@@ -76,81 +68,89 @@ impl<S> HttpRequest<S> {
     }
 
     pub(crate) fn as_state(&self) -> &RequestContext<S> {
-        &self.state
+        self.0.as_ref()
     }
 
     pub(crate) fn as_context(&self) -> &Request {
-        self.msg.as_ref()
+        self.0.request()
     }
 
     /// Shared application state
     #[inline]
     pub fn state(&self) -> &S {
-        &self.state.state
+        &self.0.state
     }
 
     /// Request extensions
     #[inline]
     pub fn extensions(&self) -> Ref<Extensions> {
-        self.msg.extensions()
+        self.0.request().extensions()
     }
 
     /// Mutable reference to a the request's extensions
     #[inline]
     pub fn extensions_mut(&self) -> RefMut<Extensions> {
-        self.msg.extensions_mut()
+        self.0.request().extensions_mut()
     }
 
     /// Default `CpuPool`
     #[inline]
     #[doc(hidden)]
     pub fn cpu_pool(&self) -> &CpuPool {
-        self.msg.server_settings().cpu_pool()
+        self.0.request().server_settings().cpu_pool()
     }
 
+    #[inline]
     /// Create http response
     pub fn response(&self, status: StatusCode, body: Body) -> HttpResponse {
-        self.msg.server_settings().get_response(status, body)
+        self.0
+            .request()
+            .server_settings()
+            .get_response(status, body)
     }
 
+    #[inline]
     /// Create http response builder
     pub fn build_response(&self, status: StatusCode) -> HttpResponseBuilder {
-        self.msg.server_settings().get_response_builder(status)
+        self.0
+            .request()
+            .server_settings()
+            .get_response_builder(status)
     }
 
     /// Read the Request Uri.
     #[inline]
     pub fn uri(&self) -> &Uri {
-        self.msg.inner.url.uri()
+        self.0.request().inner.url.uri()
     }
 
     /// Read the Request method.
     #[inline]
     pub fn method(&self) -> &Method {
-        &self.msg.inner.method
+        &self.0.request().inner.method
     }
 
     /// Read the Request Version.
     #[inline]
     pub fn version(&self) -> Version {
-        self.msg.inner.version
+        self.0.request().inner.version
     }
 
     /// The target path of this Request.
     #[inline]
     pub fn path(&self) -> &str {
-        self.msg.inner.url.path()
+        self.0.request().inner.url.path()
     }
 
     #[inline]
     pub(crate) fn url(&self) -> &InnerUrl {
-        &self.msg.inner.url
+        &self.0.request().inner.url
     }
 
     /// Get *ConnectionInfo* for the correct request.
     #[inline]
     pub fn connection_info(&self) -> Ref<ConnectionInfo> {
-        self.msg.connection_info()
+        self.0.request().connection_info()
     }
 
     /// Generate url for named resource
@@ -206,13 +206,13 @@ impl<S> HttpRequest<S> {
     /// This method returns reference to current `Router` object.
     #[inline]
     pub fn router(&self) -> &Router {
-        &self.state.router
+        &self.0.router
     }
 
     /// This method returns reference to matched `Resource` object.
     #[inline]
     pub fn resource(&self) -> Option<&Resource> {
-        self.state.resource()
+        self.0.resource()
     }
 
     /// Peer socket address
@@ -224,7 +224,7 @@ impl<S> HttpRequest<S> {
     /// be used.
     #[inline]
     pub fn peer_addr(&self) -> Option<SocketAddr> {
-        self.msg.inner.addr
+        self.0.request().inner.addr
     }
 
     /// url query parameters.
@@ -257,7 +257,7 @@ impl<S> HttpRequest<S> {
         if self.extensions().get::<Query>().is_none() {
             let mut req = self.clone();
             let mut cookies = Vec::new();
-            for hdr in self.msg.inner.headers.get_all(header::COOKIE) {
+            for hdr in self.0.request().inner.headers.get_all(header::COOKIE) {
                 let s = str::from_utf8(hdr.as_bytes()).map_err(CookieParseError::from)?;
                 for cookie_str in s.split(';').map(|s| s.trim()) {
                     if !cookie_str.is_empty() {
@@ -298,19 +298,19 @@ impl<S> HttpRequest<S> {
     /// access the matched value for that segment.
     #[inline]
     pub fn match_info(&self) -> &Params {
-        &self.msg.inner.params
+        &self.0.request().inner.params
     }
 
     /// Check if request requires connection upgrade
     pub(crate) fn upgrade(&self) -> bool {
-        self.msg.upgrade()
+        self.0.request().upgrade()
     }
 
     /// Set read buffer capacity
     ///
     /// Default buffer capacity is 32Kb.
     pub fn set_read_buffer_capacity(&mut self, cap: usize) {
-        if let Some(payload) = self.msg.inner.payload.borrow_mut().as_mut() {
+        if let Some(payload) = self.0.request().inner.payload.borrow_mut().as_mut() {
             payload.set_read_buffer_capacity(cap)
         }
     }
@@ -318,10 +318,7 @@ impl<S> HttpRequest<S> {
 
 impl<S> Clone for HttpRequest<S> {
     fn clone(&self) -> HttpRequest<S> {
-        HttpRequest {
-            msg: self.msg.clone(),
-            state: self.state.clone(),
-        }
+        HttpRequest(self.0.clone())
     }
 }
 

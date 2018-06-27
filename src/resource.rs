@@ -285,11 +285,9 @@ impl<S: 'static> ResourceHandler<S> {
     }
 
     #[inline]
-    pub(crate) fn get_route_id(
-        &self, msg: &mut Request, state: &RequestContext<S>,
-    ) -> Option<RouteId> {
+    pub(crate) fn get_route_id(&self, ctx: &mut RequestContext<S>) -> Option<RouteId> {
         for idx in 0..self.routes.len() {
-            if (&self.routes[idx]).check(msg, state) {
+            if (&self.routes[idx]).check(ctx) {
                 return Some(RouteId(idx));
             }
         }
@@ -297,9 +295,7 @@ impl<S: 'static> ResourceHandler<S> {
     }
 
     #[inline]
-    pub(crate) fn handle(
-        &self, id: RouteId, msg: Request, state: RequestContext<S>,
-    ) -> RouteResult<S> {
-        (&self.routes[id.0]).handle(msg, state)
+    pub(crate) fn handle(&self, id: RouteId, ctx: RequestContext<S>) -> RouteResult<S> {
+        (&self.routes[id.0]).handle(ctx)
     }
 }
