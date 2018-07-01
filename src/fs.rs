@@ -676,7 +676,10 @@ impl<S: 'static> Handler<S> for StaticFiles<S> {
             };
 
             // full filepath
-            let path = self.directory.join(&relpath).canonicalize()?;
+            let path = match self.directory.join(&relpath).canonicalize() {
+                Ok(path) => path,
+                _ => return Ok(self.default.handle(req))
+            };
 
             if path.is_dir() {
                 if let Some(ref redir_index) = self.index {
@@ -699,8 +702,11 @@ impl<S: 'static> Handler<S> for StaticFiles<S> {
                     Ok(self.default.handle(req))
                 }
             } else {
-                NamedFile::open(path)?
-                    .set_cpu_pool(self.cpu_pool.clone())
+                let file = match NamedFile::open(path) {
+                    Ok(file) => file,
+                    _ => return Ok(self.default.handle(req))
+                };
+                file.set_cpu_pool(self.cpu_pool.clone())
                     .respond_to(&req)?
                     .respond_to(&req)
             }
@@ -807,6 +813,7 @@ impl HttpRange {
 mod tests {
     use super::*;
     use application::App;
+    use body::{Binary, Body};
     use http::{header, Method, StatusCode};
     use test::{self, TestRequest};
 
@@ -1204,6 +1211,19 @@ mod tests {
         );
         assert!(resp.body().is_binary());
         assert!(format!("{:?}", resp.body()).contains("README.md"));
+    }
+
+    #[test]
+    fn test_default_handler_file_missing() {
+        let st = StaticFiles::new(".")
+            .default_handler(|_req| "default content");
+        let req = TestRequest::with_uri("/missing")
+            .param("tail", "missing").finish();
+
+        let resp = st.handle(req).respond_to(&HttpRequest::default()).unwrap();
+        let resp = resp.as_msg();
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(resp.body(), &Body::Binary(Binary::Slice(b"default content")));
     }
 
     #[test]
